@@ -368,15 +368,19 @@ def train_lora_endpoint(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if "output_name" not in job_input:
             raise ValueError("Missing required parameter: output_name")
         
-        # Extract training configuration
+        # Extract training configuration (using Replicate's proven settings)
         config = {
             "instance_prompt": job_input.get("instance_prompt", "a photo of TOK person"),
-            "resolution": job_input.get("resolution", 512),
-            "max_train_steps": job_input.get("max_train_steps", 500),
+            "resolution": job_input.get("resolution", 768),  # Higher resolution like Replicate
+            "max_train_steps": job_input.get("max_train_steps", 1000),  # Replicate's default
             "learning_rate": job_input.get("learning_rate", 1e-4),
-            "lora_rank": job_input.get("lora_rank", 4),
+            "lora_rank": job_input.get("lora_rank", 16),  # Higher rank for better quality
             "lora_alpha": job_input.get("lora_alpha", 32),
-            "lora_dropout": job_input.get("lora_dropout", 0.1)
+            "lora_dropout": job_input.get("lora_dropout", 0.1),
+            "train_batch_size": job_input.get("train_batch_size", 1),
+            "gradient_accumulation_steps": job_input.get("gradient_accumulation_steps", 4),
+            "lr_scheduler": job_input.get("lr_scheduler", "constant"),
+            "lr_warmup_steps": job_input.get("lr_warmup_steps", 100)
         }
         
         # Generate unique user ID for this training session
@@ -537,11 +541,15 @@ def handler(job):
                     "training_images_zip": {"type": "string", "required": True, "description": "Base64 encoded zip file containing training images"},
                     "output_name": {"type": "string", "required": True, "description": "Name for the trained LoRA model"},
                     "instance_prompt": {"type": "string", "default": "a photo of TOK person", "description": "Prompt template for training"},
-                    "resolution": {"type": "integer", "default": 512, "description": "Training image resolution"},
-                    "max_train_steps": {"type": "integer", "default": 500, "description": "Number of training steps"},
+                    "resolution": {"type": "integer", "default": 768, "description": "Training image resolution (Replicate standard)"},
+                    "max_train_steps": {"type": "integer", "default": 1000, "description": "Number of training steps (Replicate standard)"},
                     "learning_rate": {"type": "float", "default": 1e-4, "description": "Learning rate for training"},
-                    "lora_rank": {"type": "integer", "default": 4, "description": "LoRA rank (higher = more capacity)"},
+                    "lora_rank": {"type": "integer", "default": 16, "description": "LoRA rank (higher = more capacity, Replicate standard)"},
                     "lora_alpha": {"type": "integer", "default": 32, "description": "LoRA alpha parameter"},
+                    "train_batch_size": {"type": "integer", "default": 1, "description": "Training batch size"},
+                    "gradient_accumulation_steps": {"type": "integer", "default": 4, "description": "Gradient accumulation steps"},
+                    "lr_scheduler": {"type": "string", "default": "constant", "description": "Learning rate scheduler"},
+                    "lr_warmup_steps": {"type": "integer", "default": 100, "description": "Learning rate warmup steps"},
                     "user_id": {"type": "string", "optional": True, "description": "User identifier for organizing training data"}
                 },
                 "generate_lora_parameters": {
