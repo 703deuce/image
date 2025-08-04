@@ -38,7 +38,8 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Install performance optimizations
-RUN python3 -m pip install --no-cache-dir ninja "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || echo "Optional packages failed"
+RUN python3 -m pip install --no-cache-dir ninja || echo "ninja install failed (optional)"
+RUN python3 -m pip install --no-cache-dir "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || echo "flash-attn install failed (optional - will use slower fallback)"
 
 # Copy application code
 COPY handler.py runpod_api.py ./
