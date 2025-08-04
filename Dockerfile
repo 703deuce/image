@@ -1,5 +1,6 @@
 # Production-ready Dockerfile for FLUX.1-dev RunPod API
-FROM runpod/pytorch:2.1.0-py3.10-cuda12.1.1-devel-ubuntu22.04
+# Using official NVIDIA CUDA base image (guaranteed to work)
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 # Set working directory
 WORKDIR /app
@@ -19,6 +20,9 @@ RUN mkdir -p /app/cache /tmp/outputs
 
 # Install system dependencies with cleanup
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
     git \
     wget \
     curl \
@@ -27,19 +31,22 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Create python symlink for compatibility
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
 # Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
 # Upgrade pip and install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Install performance optimizations with error handling
-RUN pip install --no-cache-dir ninja || echo "Warning: ninja install failed"
-RUN pip install --no-cache-dir flash-attn --no-build-isolation || echo "Warning: flash-attn install failed (optional optimization)"
+RUN python3 -m pip install --no-cache-dir ninja || echo "Warning: ninja install failed"
+RUN python3 -m pip install --no-cache-dir flash-attn --no-build-isolation || echo "Warning: flash-attn install failed (optional optimization)"
 
 # Install additional helpful packages
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     psutil \
     GPUtil || echo "Warning: monitoring packages failed"
 
