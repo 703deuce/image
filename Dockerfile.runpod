@@ -35,52 +35,33 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application files
 COPY handler.py runpod_api.py ./
 
-# Pre-download FLUX.1-dev model during build to local storage
+# Pre-download FLUX.1-dev model during build to avoid runtime download issues
 # This ensures the model is ready immediately when container starts
 RUN python -c "
 import os
 from diffusers import FluxPipeline
 import torch
 
-# Create local model cache directory
-os.makedirs('/app/models', exist_ok=True)
+# Ensure cache directory exists
+os.makedirs('/runpod-volume/cache', exist_ok=True)
 
-print('Pre-downloading FLUX.1-dev model to local storage...')
+print('Pre-downloading FLUX.1-dev model...')
 try:
-    # Download model to local storage during build (no HF_TOKEN needed for public access)
+    # Download model to network storage during build
     pipeline = FluxPipeline.from_pretrained(
         'black-forest-labs/FLUX.1-dev',
         torch_dtype=torch.bfloat16,
-        cache_dir='/app/models'
+        cache_dir='/runpod-volume/cache'
     )
-    print('✅ Model pre-downloaded successfully to /app/models!')
+    print('✅ Model pre-downloaded successfully!')
 except Exception as e:
     print(f'⚠️  Model pre-download failed: {e}')
     print('Model will be downloaded at runtime instead.')
 "
 
-# Create startup script to copy model to network volume at runtime
-COPY <<EOF /app/startup.sh
-#!/bin/bash
-echo "🚀 Starting FLUX.1-dev container..."
-
-# Copy pre-downloaded model from local to network storage if available
-if [ -d "/app/models" ] && [ -d "/runpod-volume" ]; then
-    echo "📦 Copying pre-downloaded model to network storage..."
-    mkdir -p /runpod-volume/cache
-    cp -r /app/models/* /runpod-volume/cache/ 2>/dev/null || echo "⚠️  Model copy failed, will download at runtime"
-    echo "✅ Model available in network storage"
-fi
-
-# Start the main application
-exec python handler.py
-EOF
-
-RUN chmod +x /app/startup.sh
-
 # Simple health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import torch; exit(0 if torch.cuda.is_available() else 1)"
 
-# Run the startup script
-CMD ["/app/startup.sh"]
+# Run the application
+CMD ["python", "handler.py"]
