@@ -10,3 +10,10 @@ numpy==1.24.4
 requests==2.32.3
 protobuf==4.25.4
 accelerate==0.33.0
+
+# LoRA training dependencies
+peft==0.12.0
+datasets==2.20.0
+bitsandbytes==0.43.1
+scipy==1.11.4
+tqdm==4.66.4
