@@ -37,16 +37,11 @@ def load_model():
                 cache_dir="/runpod-volume/cache"
             )
             
-            # Enable CPU offload to save VRAM - skip for compatibility
-            try:
-                # Use sequential CPU offload instead for better compatibility
-                pipeline.enable_sequential_cpu_offload()
-                logger.info("Enabled sequential CPU offload")
-            except Exception as e:
-                logger.warning(f"Could not enable CPU offload: {e}")
+            # Skip CPU offload for now - use GPU memory directly for better compatibility
+            # This requires more VRAM but avoids path/device configuration issues
+            pipeline = pipeline.to("cuda")
             
-            # Enable memory efficient attention if available (but we removed xformers)
-            # Skip xformers since we're using standard attention
+            logger.info("Pipeline loaded to GPU")
             
             logger.info("Model loaded successfully!")
             
