@@ -24,7 +24,7 @@ def load_model():
         logger.info("Loading FLUX.1-dev model...")
         
         try:
-            # Load the pipeline
+            # Load the pipeline with fallback for Flash-Attention
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,

@@ -1,0 +1,48 @@
+# Dockerfile with Flash-Attention timeout protection
+# Will try to build Flash-Attention but fall back gracefully
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+# Set working directory
+WORKDIR /app
+
+# Set essential environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV HF_HOME=/app/cache
+ENV TRANSFORMERS_CACHE=/app/cache
+ENV DIFFUSERS_CACHE=/app/cache
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+
+# Create cache directory
+RUN mkdir -p /app/cache
+
+# Install system dependencies including Python and build tools
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip python3-dev git wget curl unzip build-essential timeout && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create python symlink for compatibility
+RUN ln -s /usr/bin/python3 /usr/bin/python
+
+# Copy requirements and install Python dependencies (NO flash-attn in requirements)
+COPY requirements.txt .
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
+
+# Try Flash-Attention with 10-minute timeout, continue if it fails
+RUN echo "Attempting Flash-Attention build with 10-minute timeout..." && \
+    timeout 600 python3 -m pip install --no-cache-dir "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || \
+    echo "Flash-Attention build timed out or failed - FLUX will use standard attention (slightly slower but same quality)"
+
+# Install other optional optimizations  
+RUN python3 -m pip install --no-cache-dir ninja || echo "ninja install failed (optional)"
+
+# Copy application files
+COPY handler.py runpod_api.py ./
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import torch; exit(0 if torch.cuda.is_available() else 1)"
+
+# Run the application
+CMD ["python", "handler.py"]
