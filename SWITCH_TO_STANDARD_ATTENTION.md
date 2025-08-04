@@ -33,7 +33,7 @@ You're switching to **standard attention** which gives you:
 from runpod_api import FluxRunPodAPI
 
 # Your credentials (same as before)
-api = FluxRunPodAPI("7lml4plnku4fru", "your-api-key-here")
+api = FluxRunPodAPI("your-endpoint-id", "your-api-key-here")
 
 # Test it works
 result = api.health_check()

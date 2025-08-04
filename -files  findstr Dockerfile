@@ -1,0 +1,5 @@
+[33m32a3781[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mstandard-attention[m[33m, [m[1;31morigin/standard-attention[m[33m)[m Security: Remove endpoint ID from documentation and improve gitignore
+[33m3b9aa72[m Use standard attention for deployment
+[33m52bf9ca[m[33m ([m[1;31morigin/master[m[33m)[m Add comprehensive Flash-Attention solutions
+[33m57af1d5[m Fix Docker build error with Flash-Attention
+[33m14d0dbb[m Fix Flash-Attention version compatibility issue
