@@ -437,7 +437,7 @@ def generate_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
         
         # Load LoRA weights if specified
         lora_path = job_input.get("lora_path")
-        if lora_path and os.path.exists(lora_path):
+        if lora_path:
             pipe = load_lora_weights(pipe, lora_path)
             logger.info(f"Using LoRA: {lora_path}")
         
