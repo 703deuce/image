@@ -29,7 +29,7 @@ def load_model():
             if not hf_token:
                 raise ValueError("HF_TOKEN environment variable is required for FLUX.1-dev access")
             
-            # Load the pipeline with authentication from pre-downloaded cache
+            # Load the pipeline with authentication to network storage
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,
