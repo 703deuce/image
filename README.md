@@ -1,5 +1,7 @@
 # FLUX.1-dev RunPod Serverless API
 
+🚀 **Now using standard attention for reliable deployment!**
+
 A complete RunPod Serverless API implementation for the [FLUX.1-dev](https://huggingface.co/black-forest-labs/FLUX.1-dev) text-to-image model by Black Forest Labs.
 
 ## Overview
