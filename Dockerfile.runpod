@@ -9,14 +9,15 @@ WORKDIR /app
 # Set essential environment variables for FLUX.1-dev
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV HF_HOME=/app/cache
-ENV TRANSFORMERS_CACHE=/app/cache
-ENV DIFFUSERS_CACHE=/app/cache
+# Use network storage for model cache to avoid disk space issues
+ENV HF_HOME=/runpod-volume/cache
+ENV TRANSFORMERS_CACHE=/runpod-volume/cache
+ENV DIFFUSERS_CACHE=/runpod-volume/cache
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 # HF_TOKEN will be set at runtime via RunPod environment variables
 
-# Create cache directory
-RUN mkdir -p /app/cache
+# Create cache directories (network storage will be mounted at /runpod-volume)
+RUN mkdir -p /app/cache /runpod-volume/cache
 
 # Install additional system dependencies if needed
 RUN apt-get update && \
