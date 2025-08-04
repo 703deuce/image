@@ -18,8 +18,8 @@ Pillow>=10.0.0
 safetensors>=0.4.0
 sentencepiece>=0.2.0
 
-# Memory optimization (optional but recommended)
-xformers>=0.0.22
+# Memory optimization (skipped for standard attention builds)
+# xformers>=0.0.22  # Removed - causes build hangs and not needed for standard attention
 # flash-attn>=2.7.1,<=2.8.0  # Moved to optional installation in Docker
 
 # Utilities
