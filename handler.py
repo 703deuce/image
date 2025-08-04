@@ -24,11 +24,17 @@ def load_model():
         logger.info("Loading FLUX.1-dev model...")
         
         try:
-            # Load the pipeline with fallback for Flash-Attention
+            # Get HF token for gated model access
+            hf_token = os.environ.get("HF_TOKEN")
+            if not hf_token:
+                raise ValueError("HF_TOKEN environment variable is required for FLUX.1-dev access")
+            
+            # Load the pipeline with authentication
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,
-                variant="fp16"
+                variant="fp16",
+                token=hf_token
             )
             
             # Enable CPU offload to save VRAM

@@ -13,6 +13,7 @@ ENV HF_HOME=/app/cache
 ENV TRANSFORMERS_CACHE=/app/cache
 ENV DIFFUSERS_CACHE=/app/cache
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+# HF_TOKEN will be set at runtime via RunPod environment variables
 
 # Create cache directory
 RUN mkdir -p /app/cache
