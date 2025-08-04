@@ -29,13 +29,23 @@ def load_model():
             if not hf_token:
                 raise ValueError("HF_TOKEN environment variable is required for FLUX.1-dev access")
             
-            # Load the pipeline with basic settings - keep it simple
-            logger.info("Loading pipeline components...")
+            # Debug: Check all paths and variables before loading
+            logger.info("=== DEBUGGING MODEL LOADING ===")
+            logger.info(f"HF_TOKEN: {'SET' if hf_token else 'NONE'}")
+            logger.info(f"Cache dir exists: {os.path.exists('/runpod-volume/cache')}")
+            logger.info(f"Runpod volume exists: {os.path.exists('/runpod-volume')}")
+            
+            # List contents of directories
+            if os.path.exists('/runpod-volume'):
+                logger.info(f"Contents of /runpod-volume: {os.listdir('/runpod-volume')}")
+            
+            # Try without cache_dir first to isolate the issue
+            logger.info("Loading pipeline components WITHOUT cache_dir...")
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,
-                token=hf_token,
-                cache_dir="/runpod-volume/cache"
+                token=hf_token
+                # Temporarily remove cache_dir to see if that's the issue
             )
             
             logger.info("Moving pipeline to CUDA...")
