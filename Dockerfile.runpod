@@ -35,6 +35,30 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application files
 COPY handler.py runpod_api.py ./
 
+# Pre-download FLUX.1-dev model during build to avoid runtime download issues
+# This ensures the model is ready immediately when container starts
+RUN python -c "
+import os
+from diffusers import FluxPipeline
+import torch
+
+# Ensure cache directory exists
+os.makedirs('/runpod-volume/cache', exist_ok=True)
+
+print('Pre-downloading FLUX.1-dev model...')
+try:
+    # Download model to network storage during build
+    pipeline = FluxPipeline.from_pretrained(
+        'black-forest-labs/FLUX.1-dev',
+        torch_dtype=torch.bfloat16,
+        cache_dir='/runpod-volume/cache'
+    )
+    print('✅ Model pre-downloaded successfully!')
+except Exception as e:
+    print(f'⚠️  Model pre-download failed: {e}')
+    print('Model will be downloaded at runtime instead.')
+"
+
 # Simple health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import torch; exit(0 if torch.cuda.is_available() else 1)"
