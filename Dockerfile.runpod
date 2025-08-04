@@ -1,5 +1,6 @@
 # RunPod-native Dockerfile for FLUX.1-dev API
 # Using RunPod's official PyTorch base image
+# Build trigger: Updated to use standard attention without xformers
 FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 
 # Set working directory
