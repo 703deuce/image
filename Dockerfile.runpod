@@ -26,9 +26,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Try to install performance optimizations (optional)
-RUN pip install --no-cache-dir ninja || echo "ninja install failed (optional)"
-RUN pip install --no-cache-dir "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || echo "flash-attn install failed (optional - will use slower fallback)"
+# Skip flash-attention - use standard attention for guaranteed compatibility
+# This ensures faster builds and no dependency issues
 
 # Copy application files
 COPY handler.py runpod_api.py ./
