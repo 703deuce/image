@@ -198,7 +198,7 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         raise e
 
 def load_lora_weights(pipeline, lora_path: str):
-    """Load LoRA weights into the pipeline"""
+    """Load LoRA weights into the pipeline using diffusers built-in support"""
     global loaded_lora_path
     
     try:
@@ -212,19 +212,31 @@ def load_lora_weights(pipeline, lora_path: str):
         if not os.path.exists(lora_path):
             raise FileNotFoundError(f"LoRA file not found: {lora_path}")
         
-        # For now, just log that we're using a LoRA
-        # In production, this would actually load and apply the weights
-        logger.info(f"LoRA file found: {lora_path} ({os.path.getsize(lora_path)} bytes)")
-        logger.info("Note: LoRA loading is simplified for testing")
+        # Unload previous LoRA if any
+        if loaded_lora_path is not None:
+            try:
+                pipeline.unload_lora_weights()
+                logger.info("Previous LoRA unloaded")
+            except Exception as e:
+                logger.warning(f"Could not unload previous LoRA: {e}")
+        
+        # Load LoRA weights using diffusers built-in method
+        logger.info(f"Loading LoRA file: {lora_path} ({os.path.getsize(lora_path)} bytes)")
+        pipeline.load_lora_weights(lora_path)
+        
+        # Set LoRA scale for strength (1.0 = full strength)
+        pipeline.set_adapters(["default"], adapter_weights=[1.0])
         
         loaded_lora_path = lora_path
-        logger.info("LoRA weights loaded successfully")
+        logger.info("✅ LoRA weights loaded and applied successfully!")
         
         return pipeline
         
     except Exception as e:
-        logger.error(f"Error loading LoRA weights: {e}")
-        raise e
+        logger.error(f"❌ Error loading LoRA weights: {e}")
+        # If LoRA loading fails, continue without LoRA
+        logger.warning("Continuing generation without LoRA")
+        return pipeline
 
 def validate_parameters(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and set default parameters"""
