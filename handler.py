@@ -185,6 +185,12 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         logger.info(f"LoRA saved to: {output_path}")
         logger.info("Training completed successfully!")
         
+        # Clean up GPU memory after training
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        
         return output_path
         
     except Exception as e:
@@ -261,6 +267,93 @@ def validate_parameters(job_input: Dict[str, Any]) -> Dict[str, Any]:
     params["width"] = (params["width"] // 8) * 8
     
     return params
+
+def download_lora_endpoint(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle LoRA download requests"""
+    try:
+        # Validate required parameters
+        if "lora_name" not in job_input:
+            raise ValueError("Missing required parameter: lora_name")
+        
+        lora_name = job_input["lora_name"]
+        lora_path = f"/runpod-volume/loras/{lora_name}"
+        
+        # Add .safetensors extension if not present
+        if not lora_path.endswith('.safetensors'):
+            lora_path += '.safetensors'
+        
+        # Check if LoRA file exists
+        if not os.path.exists(lora_path):
+            raise FileNotFoundError(f"LoRA file not found: {lora_name}")
+        
+        # Read and encode the LoRA file
+        with open(lora_path, 'rb') as f:
+            lora_data = f.read()
+        
+        lora_base64 = base64.b64encode(lora_data).decode('utf-8')
+        file_size = len(lora_data)
+        
+        logger.info(f"LoRA file '{lora_name}' prepared for download ({file_size} bytes)")
+        
+        return {
+            "success": True,
+            "lora_name": lora_name,
+            "lora_base64": lora_base64,
+            "file_size": file_size,
+            "message": f"LoRA '{lora_name}' ready for download"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error downloading LoRA: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def list_loras_endpoint(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """List all available LoRAs"""
+    try:
+        loras_dir = "/runpod-volume/loras"
+        
+        if not os.path.exists(loras_dir):
+            return {
+                "success": True,
+                "loras": [],
+                "message": "No LoRAs directory found"
+            }
+        
+        # Get all .safetensors files
+        lora_files = []
+        for filename in os.listdir(loras_dir):
+            if filename.endswith('.safetensors'):
+                filepath = os.path.join(loras_dir, filename)
+                file_stats = os.stat(filepath)
+                
+                lora_files.append({
+                    "name": filename,
+                    "size": file_stats.st_size,
+                    "created": time.ctime(file_stats.st_ctime),
+                    "modified": time.ctime(file_stats.st_mtime)
+                })
+        
+        # Sort by creation time (newest first)
+        lora_files.sort(key=lambda x: x["created"], reverse=True)
+        
+        logger.info(f"Found {len(lora_files)} LoRA files")
+        
+        return {
+            "success": True,
+            "loras": lora_files,
+            "count": len(lora_files),
+            "message": f"Found {len(lora_files)} LoRA models"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing LoRAs: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def train_lora_endpoint(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle LoRA training requests"""
@@ -379,6 +472,7 @@ def generate_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # Clean up GPU memory
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
         gc.collect()
         
         logger.info("Image generated successfully!")
@@ -405,6 +499,12 @@ def handler(job):
         
         elif endpoint == "train_lora":
             return train_lora_endpoint(job_input)
+        
+        elif endpoint == "download_lora":
+            return download_lora_endpoint(job_input)
+        
+        elif endpoint == "list_loras":
+            return list_loras_endpoint(job_input)
         
         elif endpoint == "health":
             return {
@@ -447,9 +547,14 @@ def handler(job):
                 "generate_lora_parameters": {
                     "lora_path": {"type": "string", "optional": True, "description": "Path to LoRA weights file to use for generation"}
                 },
+                "download_lora_parameters": {
+                    "lora_name": {"type": "string", "required": True, "description": "Name of the LoRA file to download (with or without .safetensors extension)"}
+                },
                 "endpoints": {
                     "generate": "Generate image from text prompt (optionally with LoRA)",
                     "train_lora": "Train a LoRA model on provided images",
+                    "download_lora": "Download a trained LoRA model as base64",
+                    "list_loras": "List all available LoRA models",
                     "health": "Check API health status",
                     "info": "Get model and API information"
                 }
@@ -458,7 +563,7 @@ def handler(job):
         else:
             return {
                 "success": False,
-                "error": f"Unknown endpoint: {endpoint}. Available endpoints: generate, train_lora, health, info"
+                "error": f"Unknown endpoint: {endpoint}. Available endpoints: generate, train_lora, download_lora, list_loras, health, info"
             }
             
     except Exception as e:
