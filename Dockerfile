@@ -43,7 +43,7 @@ RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Install performance optimizations with error handling
 RUN python3 -m pip install --no-cache-dir ninja || echo "Warning: ninja install failed"
-RUN python3 -m pip install --no-cache-dir flash-attn --no-build-isolation || echo "Warning: flash-attn install failed (optional optimization)"
+RUN python3 -m pip install --no-cache-dir "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || echo "Warning: flash-attn install failed (optional optimization)"
 
 # Install additional helpful packages
 RUN python3 -m pip install --no-cache-dir \

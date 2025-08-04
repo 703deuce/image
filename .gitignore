@@ -79,3 +79,7 @@ secrets.json
 test_output.png
 generated_*.png
 flux-dev.png
+
+# Local test files with API keys (DO NOT COMMIT)
+test_deployed_api.py
+api_test_output/

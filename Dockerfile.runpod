@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Try to install performance optimizations (optional)
 RUN pip install --no-cache-dir ninja || true
-RUN pip install --no-cache-dir flash-attn --no-build-isolation || true
+RUN pip install --no-cache-dir "flash-attn>=2.7.1,<=2.8.0" --no-build-isolation || true
 
 # Copy application files
 COPY handler.py runpod_api.py ./
