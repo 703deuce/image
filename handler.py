@@ -37,16 +37,16 @@ def load_model():
                 cache_dir="/runpod-volume/cache"
             )
             
-            # Enable CPU offload to save VRAM
-            pipeline.enable_model_cpu_offload()
+            # Enable CPU offload to save VRAM - skip for compatibility
+            try:
+                # Use sequential CPU offload instead for better compatibility
+                pipeline.enable_sequential_cpu_offload()
+                logger.info("Enabled sequential CPU offload")
+            except Exception as e:
+                logger.warning(f"Could not enable CPU offload: {e}")
             
-            # Enable memory efficient attention if available
-            if hasattr(pipeline, 'enable_xformers_memory_efficient_attention'):
-                try:
-                    pipeline.enable_xformers_memory_efficient_attention()
-                    logger.info("Enabled xformers memory efficient attention")
-                except Exception as e:
-                    logger.warning(f"Could not enable xformers: {e}")
+            # Enable memory efficient attention if available (but we removed xformers)
+            # Skip xformers since we're using standard attention
             
             logger.info("Model loaded successfully!")
             
