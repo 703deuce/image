@@ -82,4 +82,6 @@ flux-dev.png
 
 # Local test files with API keys (DO NOT COMMIT)
 test_deployed_api.py
+test_local.py
+debug_runpod_url.py
 api_test_output/

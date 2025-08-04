@@ -48,7 +48,7 @@ Once redeployed, test with:
 from runpod_api import FluxRunPodAPI
 
 # Your credentials
-api = FluxRunPodAPI("7lml4plnku4fru", "your-api-key")
+api = FluxRunPodAPI("your-endpoint-id", "your-api-key")
 
 # Test health check
 result = api.health_check()
