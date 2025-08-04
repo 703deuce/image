@@ -1,0 +1,269 @@
+{
+  "name": "FLUX.1-dev API",
+  "description": "Serverless API for FLUX.1-dev text-to-image generation",
+  "version": "1.0.0",
+  "runtime": {
+    "container": {
+      "image": "your-registry/flux-runpod-api:latest",
+      "start_command": "python handler.py"
+    },
+    "environment_variables": {
+      "PYTHONUNBUFFERED": "1",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "HF_HOME": "/app/cache",
+      "TRANSFORMERS_CACHE": "/app/cache",
+      "DIFFUSERS_CACHE": "/app/cache",
+      "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
+      "CUDA_LAUNCH_BLOCKING": "0"
+    }
+  },
+  "hardware": {
+    "gpu": {
+      "minimum": {
+        "type": "RTX 4090",
+        "vram": "24GB",
+        "description": "Minimum for basic functionality"
+      },
+      "recommended": {
+        "type": "A100 40GB",
+        "vram": "40GB", 
+        "description": "Optimal performance and memory headroom"
+      },
+      "premium": {
+        "type": "A100 80GB",
+        "vram": "80GB",
+        "description": "Best performance for high-resolution and batch processing"
+      }
+    },
+    "cpu": {
+      "minimum_cores": 8,
+      "recommended_cores": 16,
+      "memory_gb": 32
+    },
+    "storage": {
+      "container_disk_gb": 50,
+      "temp_disk_gb": 20,
+      "description": "Container disk for model storage, temp disk for output files"
+    }
+  },
+  "networking": {
+    "ports": [],
+    "timeout_seconds": 300,
+    "max_concurrent_requests": 10
+  },
+  "scaling": {
+    "min_workers": 0,
+    "max_workers": 100,
+    "idle_timeout_seconds": 300,
+    "scale_up_threshold": 0.8,
+    "scale_down_threshold": 0.2
+  },
+  "health_check": {
+    "endpoint": "/health",
+    "interval_seconds": 30,
+    "timeout_seconds": 10,
+    "retries": 3
+  },
+  "endpoints": {
+    "generate": {
+      "method": "POST",
+      "description": "Generate images from text prompts",
+      "timeout_seconds": 300,
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "required": true,
+          "description": "Text description for image generation",
+          "example": "A beautiful sunset over the ocean"
+        },
+        "height": {
+          "type": "integer",
+          "default": 1024,
+          "min": 256,
+          "max": 2048,
+          "description": "Image height in pixels (multiples of 8)"
+        },
+        "width": {
+          "type": "integer", 
+          "default": 1024,
+          "min": 256,
+          "max": 2048,
+          "description": "Image width in pixels (multiples of 8)"
+        },
+        "guidance_scale": {
+          "type": "float",
+          "default": 3.5,
+          "min": 0.0,
+          "max": 20.0,
+          "description": "Guidance scale for generation quality"
+        },
+        "num_inference_steps": {
+          "type": "integer",
+          "default": 50,
+          "min": 1,
+          "max": 100,
+          "description": "Number of denoising steps"
+        },
+        "max_sequence_length": {
+          "type": "integer",
+          "default": 512,
+          "min": 1,
+          "max": 1024,
+          "description": "Maximum sequence length for text encoding"
+        },
+        "seed": {
+          "type": "integer",
+          "default": null,
+          "description": "Random seed for reproducible generation"
+        },
+        "output_format": {
+          "type": "string",
+          "default": "PNG",
+          "options": ["PNG", "JPEG"],
+          "description": "Output image format"
+        },
+        "return_base64": {
+          "type": "boolean",
+          "default": true,
+          "description": "Return image as base64 string"
+        }
+      }
+    },
+    "health": {
+      "method": "POST",
+      "description": "Check API health and model status",
+      "timeout_seconds": 30
+    },
+    "info": {
+      "method": "POST", 
+      "description": "Get API information and supported parameters",
+      "timeout_seconds": 30
+    }
+  },
+  "monitoring": {
+    "metrics": [
+      "request_count",
+      "response_time",
+      "error_rate",
+      "gpu_utilization",
+      "memory_usage"
+    ],
+    "alerts": {
+      "high_error_rate": {
+        "threshold": 0.1,
+        "window_minutes": 5
+      },
+      "high_response_time": {
+        "threshold_seconds": 60,
+        "window_minutes": 5
+      },
+      "gpu_memory_high": {
+        "threshold": 0.9,
+        "window_minutes": 5
+      }
+    }
+  },
+  "deployment": {
+    "steps": [
+      {
+        "step": 1,
+        "title": "Build Docker Image",
+        "commands": [
+          "docker build -t flux-runpod-api .",
+          "docker tag flux-runpod-api your-registry/flux-runpod-api:latest",
+          "docker push your-registry/flux-runpod-api:latest"
+        ]
+      },
+      {
+        "step": 2,
+        "title": "Create RunPod Endpoint",
+        "instructions": [
+          "Go to RunPod Dashboard → Serverless",
+          "Click 'Create Endpoint'",
+          "Select 'Custom Container'",
+          "Enter container image: your-registry/flux-runpod-api:latest"
+        ]
+      },
+      {
+        "step": 3,
+        "title": "Configure Hardware",
+        "settings": {
+          "GPU": "RTX 4090 or A100",
+          "CPU": "8+ cores",
+          "RAM": "32+ GB",
+          "Container Disk": "50 GB",
+          "Temp Disk": "20 GB"
+        }
+      },
+      {
+        "step": 4,
+        "title": "Set Environment Variables",
+        "variables": "Use environment_variables section above"
+      },
+      {
+        "step": 5,
+        "title": "Deploy and Test",
+        "commands": [
+          "python test_local.py",
+          "Update runpod_api.py with your endpoint details",
+          "Run example client code"
+        ]
+      }
+    ]
+  },
+  "cost_optimization": {
+    "tips": [
+      "Use idle_timeout to reduce costs when not in use",
+      "Scale workers based on actual demand",
+      "Use RTX 4090 for cost-effective performance",
+      "Monitor GPU utilization and adjust accordingly",
+      "Cache model weights in container to reduce cold start time"
+    ],
+    "estimated_costs": {
+      "RTX_4090": {
+        "per_hour": "$0.50",
+        "per_request": "$0.02-0.05",
+        "description": "Cost-effective for moderate usage"
+      },
+      "A100_40GB": {
+        "per_hour": "$1.50",
+        "per_request": "$0.03-0.07", 
+        "description": "Best performance/cost ratio"
+      },
+      "A100_80GB": {
+        "per_hour": "$2.50",
+        "per_request": "$0.05-0.10",
+        "description": "Premium performance for high-resolution work"
+      }
+    }
+  },
+  "troubleshooting": {
+    "common_issues": [
+      {
+        "issue": "Out of memory errors",
+        "solutions": [
+          "Reduce image resolution (height/width)",
+          "Decrease num_inference_steps",
+          "Use A100 with more VRAM",
+          "Enable model CPU offloading (automatic)"
+        ]
+      },
+      {
+        "issue": "Slow cold starts",
+        "solutions": [
+          "Keep minimum workers > 0",
+          "Use container with pre-cached model",
+          "Optimize Dockerfile for faster builds"
+        ]
+      },
+      {
+        "issue": "Generation timeouts",
+        "solutions": [
+          "Increase timeout_seconds",
+          "Reduce num_inference_steps",
+          "Use faster GPU hardware"
+        ]
+      }
+    ]
+  }
+}

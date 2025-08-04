@@ -1,0 +1,40 @@
+[project]
+name = "flux-1-dev-api"
+description = "FLUX.1-dev Text-to-Image API for RunPod Serverless"
+version = "1.0.0"
+
+[build]
+python_version = "3.10"
+cuda_version = "12.1"
+dockerfile = "Dockerfile.simple"
+
+[container]
+registry = "ghcr.io"
+image_name = "703deuce/flux-1-dev-api"
+tag = "latest"
+
+[serverless]
+handler = "handler.py"
+gpu_types = ["RTX 4090", "A100-SXM-40GB", "A100-SXM-80GB"]
+min_workers = 0
+max_workers = 10
+idle_timeout = 300
+max_job_timeout = 600
+
+[environment]
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+HF_HOME = "/runpod-volume/cache"
+TRANSFORMERS_CACHE = "/runpod-volume/cache"
+DIFFUSERS_CACHE = "/runpod-volume/cache"
+PYTORCH_CUDA_ALLOC_CONF = "max_split_size_mb:512"
+
+[hardware]
+disk_size_gb = 50
+container_disk_size_gb = 20
+
+[health_check]
+endpoint = "/health"
+interval = 30
+timeout = 15
+retries = 3
