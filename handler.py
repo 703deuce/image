@@ -29,19 +29,18 @@ def load_model():
             if not hf_token:
                 raise ValueError("HF_TOKEN environment variable is required for FLUX.1-dev access")
             
-            # Load the pipeline with authentication - use default cache first
+            # Load the pipeline with basic settings - keep it simple
             logger.info("Loading pipeline components...")
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,
                 token=hf_token,
-                cache_dir="/runpod-volume/cache",
-                device_map="auto",  # Let it handle device mapping automatically
-                low_cpu_mem_usage=True  # More efficient loading
+                cache_dir="/runpod-volume/cache"
             )
             
-            logger.info("Pipeline loaded successfully - moving to CUDA")
-            # Pipeline should already be on GPU with device_map="auto"
+            logger.info("Moving pipeline to CUDA...")
+            pipeline = pipeline.to("cuda")
+            logger.info("Pipeline loaded successfully on GPU")
             
             logger.info("Model loaded successfully!")
             
