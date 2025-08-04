@@ -33,7 +33,6 @@ def load_model():
             pipeline = FluxPipeline.from_pretrained(
                 "black-forest-labs/FLUX.1-dev", 
                 torch_dtype=torch.bfloat16,
-                variant="fp16",
                 token=hf_token
             )
             
