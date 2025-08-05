@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Global variables for model loading
 pipeline = None
+krea_pipeline = None
 loaded_lora_path = None
+krea_loaded_lora_path = None
 
 def load_model():
     """Load the FLUX.1-dev model pipeline"""
@@ -726,6 +728,146 @@ def generate_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "error": str(e)
         }
 
+def generate_krea_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """FLUX.1-Krea-dev image generation function"""
+    
+    try:
+        # Load Krea model
+        pipe = load_krea_model()
+        
+        # Load LoRA weights if specified (same system as regular model)
+        lora_path = job_input.get("lora_path")
+        if lora_path:
+            pipe = load_lora_weights_krea(pipe, lora_path)
+            logger.info(f"Using LoRA with Krea model: {lora_path}")
+        
+        # Validate parameters (same validation as regular model)
+        params = validate_parameters(job_input)
+        
+        logger.info(f"Generating Krea image with prompt: {params['prompt'][:100]}...")
+        
+        # Set up generator for reproducibility
+        generator = None
+        if params["seed"] is not None:
+            generator = torch.Generator("cpu").manual_seed(params["seed"])
+        
+        # Generate image with Krea model
+        with torch.no_grad():
+            result = pipe(
+                prompt=params["prompt"],
+                height=params["height"],
+                width=params["width"],
+                guidance_scale=params["guidance_scale"],
+                num_inference_steps=params["num_inference_steps"],
+                max_sequence_length=params["max_sequence_length"],
+                generator=generator
+            )
+        
+        image = result.images[0]
+        
+        # Prepare response (same format as regular model)
+        response = {
+            "success": True,
+            "model_used": "FLUX.1-Krea-dev",
+            "parameters_used": params,
+            "image_info": {
+                "width": image.width,
+                "height": image.height,
+                "format": params["output_format"]
+            }
+        }
+        
+        # Convert to base64 if requested
+        if params["return_base64"]:
+            response["image_base64"] = image_to_base64(image, params["output_format"])
+        else:
+            # Save to file and return path (for local testing)
+            output_path = f"/tmp/flux_krea_output_{params.get('seed', 'random')}.png"
+            image.save(output_path)
+            response["image_path"] = output_path
+        
+        # Clean up GPU memory
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        gc.collect()
+        
+        logger.info("Krea image generated successfully!")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error generating Krea image: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def load_lora_weights_krea(pipeline, lora_path: str):
+    """Load LoRA weights into the Krea pipeline using diffusers built-in support"""
+    global krea_loaded_lora_path
+    
+    try:
+        if krea_loaded_lora_path == lora_path:
+            logger.info(f"LoRA {lora_path} already loaded on Krea model")
+            return pipeline
+        
+        logger.info(f"Loading LoRA weights into Krea model from: {lora_path}")
+        
+        # Verify LoRA file exists
+        if not os.path.exists(lora_path):
+            raise FileNotFoundError(f"LoRA file not found: {lora_path}")
+        
+        # Unload previous LoRA if any
+        if krea_loaded_lora_path is not None:
+            try:
+                pipeline.unload_lora_weights()
+                logger.info("Previous LoRA unloaded from Krea model")
+            except Exception as e:
+                logger.warning(f"Could not unload previous LoRA from Krea: {e}")
+        
+        # Load LoRA weights using diffusers built-in method
+        logger.info(f"Loading LoRA file into Krea: {lora_path} ({os.path.getsize(lora_path)} bytes)")
+        
+        # Try to load LoRA weights with proper error handling
+        try:
+            # Load LoRA weights with adapter name for newer diffusers
+            pipeline.load_lora_weights(lora_path, adapter_name="default")
+            logger.info("LoRA weights loaded into Krea pipeline with adapter name 'default'")
+            
+            # Try to set LoRA adapters with stronger weight
+            pipeline.set_adapters(["default"], adapter_weights=[1.5])
+            logger.info("✅ LoRA adapters activated on Krea with 'default' name and weight 1.5")
+            
+        except Exception as lora_error:
+            logger.warning(f"Standard LoRA loading failed on Krea: {lora_error}")
+            logger.info("Attempting LoRA loading with explicit device management...")
+            
+            # Get pipeline device
+            device = next(pipeline.transformer.parameters()).device
+            logger.info(f"Krea pipeline is on device: {device}")
+            
+            # Reload and move to device
+            pipeline.load_lora_weights(lora_path)
+            pipeline = pipeline.to(device)
+            
+            # Try to activate with stronger weight
+            try:
+                pipeline.set_adapters(["default"], adapter_weights=[1.5])
+                logger.info("✅ LoRA loaded on Krea with explicit device management and weight 1.5")
+            except:
+                logger.warning("⚠️ LoRA loaded on Krea but adapter activation uncertain")
+        
+        krea_loaded_lora_path = lora_path
+        logger.info("✅ LoRA weights loaded and applied successfully to Krea!")
+        
+        return pipeline
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading LoRA weights into Krea: {e}")
+        # If LoRA loading fails, continue without LoRA
+        logger.warning("Continuing Krea generation without LoRA")
+        return pipeline
+
 def handler(job):
     """RunPod handler function"""
     
@@ -737,6 +879,9 @@ def handler(job):
         
         if endpoint == "generate":
             return generate_image(job_input)
+        
+        elif endpoint == "generate_krea":
+            return generate_krea_image(job_input)
         
         elif endpoint == "train_lora":
             return train_lora_endpoint(job_input)
@@ -751,7 +896,8 @@ def handler(job):
             return {
                 "success": True,
                 "status": "healthy",
-                "model_loaded": pipeline is not None
+                "model_loaded": pipeline is not None,
+                "krea_model_loaded": krea_pipeline is not None
             }
         
         elif endpoint == "info":
@@ -796,7 +942,8 @@ def handler(job):
                     "lora_name": {"type": "string", "required": True, "description": "Name of the LoRA file to download (with or without .safetensors extension)"}
                 },
                 "endpoints": {
-                    "generate": "Generate image from text prompt (optionally with LoRA)",
+                    "generate": "Generate image from text prompt using FLUX.1-dev (optionally with LoRA)",
+                    "generate_krea": "Generate image from text prompt using FLUX.1-Krea-dev with custom VAE (optionally with LoRA)",
                     "train_lora": "Train a LoRA model on provided images",
                     "download_lora": "Download a trained LoRA model as base64",
                     "list_loras": "List all available LoRA models",
@@ -808,7 +955,7 @@ def handler(job):
         else:
             return {
                 "success": False,
-                "error": f"Unknown endpoint: {endpoint}. Available endpoints: generate, train_lora, download_lora, list_loras, health, info"
+                "error": f"Unknown endpoint: {endpoint}. Available endpoints: generate, generate_krea, train_lora, download_lora, list_loras, health, info"
             }
             
     except Exception as e:
