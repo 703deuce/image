@@ -350,12 +350,18 @@ def setup_ai_toolkit():
                 "--index-url", "https://download.pytorch.org/whl/cu121"
             ], check=True)
         
-        # Install ai-toolkit requirements
-        logger.info("🔄 Installing ai-toolkit requirements...")
+        # Install ai-toolkit requirements to persistent volume (avoid disk space issues)
+        logger.info("🔄 Installing ai-toolkit requirements to persistent volume...")
         subprocess.run([
             sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "--target", "/runpod-volume/python-packages",
             "-r", "/runpod-volume/ai-toolkit/requirements.txt"
         ], check=True)
+        
+        # Add to Python path so packages can be found
+        import sys
+        if "/runpod-volume/python-packages" not in sys.path:
+            sys.path.insert(0, "/runpod-volume/python-packages")
         
         logger.info("✅ ai-toolkit installed successfully at runtime")
         return "manual"
@@ -411,6 +417,12 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         env = os.environ.copy()
         env["HF_TOKEN"] = os.environ.get("HF_TOKEN")
         env["CUDA_VISIBLE_DEVICES"] = "0"
+        # Add persistent volume Python packages to path
+        current_pythonpath = env.get("PYTHONPATH", "")
+        if current_pythonpath:
+            env["PYTHONPATH"] = f"/runpod-volume/python-packages:{current_pythonpath}"
+        else:
+            env["PYTHONPATH"] = "/runpod-volume/python-packages"
         
         # Run ai-toolkit as script (it's not a pip package)
         import subprocess
