@@ -222,10 +222,102 @@ def extract_training_images(zip_data: str, user_id: str) -> str:
         logger.error(f"Error extracting training images: {e}")
         raise e
 
+def create_ai_toolkit_config(training_dir: str, output_name: str, config: Dict[str, Any]) -> str:
+    """Generate ai-toolkit YAML config for FLUX LoRA training"""
+    
+    # Get HF token
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        raise ValueError("HF_TOKEN environment variable is required")
+    
+    # Training parameters
+    instance_prompt = config.get("instance_prompt", "a photo of TOK person")
+    max_train_steps = config.get("max_train_steps", 1000)
+    learning_rate = config.get("learning_rate", 5e-5)
+    lora_rank = config.get("lora_rank", 16)
+    lora_alpha = config.get("lora_alpha", 16)
+    resolution = config.get("resolution", 768)
+    train_batch_size = config.get("train_batch_size", 1)
+    
+    # Output directory
+    output_dir = f"/runpod-volume/cache/lora/{output_name}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create ai-toolkit config
+    ai_config = f"""job: extension
+config:
+  name: "{output_name}"
+  process:
+    - type: sd_trainer
+      training_folder: "{output_dir}"
+      device: cuda:0
+      trigger_word: "TOK"
+      network:
+        type: lora
+        linear: {lora_rank}
+        linear_alpha: {lora_alpha}
+      save:
+        dtype: float16
+        save_every: {max_train_steps}
+        max_step_saves_to_keep: 1
+      datasets:
+        - folder_path: "{training_dir}"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.1
+          shuffle_tokens: false
+          cache_latents_to_disk: true
+          resolution: {resolution}
+      train:
+        batch_size: {train_batch_size}
+        steps: {max_train_steps}
+        gradient_accumulation_steps: 1
+        train_unet: true
+        train_text_encoder: false
+        content_or_style: balanced
+        gradient_checkpointing: true
+        noise_scheduler: flowmatch
+        optimizer: adamw8bit
+        lr: {learning_rate}
+        ema_config:
+          use_ema: true
+          ema_decay: 0.99
+        dtype: bf16
+      model:
+        name_or_path: "black-forest-labs/FLUX.1-dev"
+        is_flux: true
+        quantize: true
+        low_vram: true
+      sample:
+        sampler: flowmatch
+        sample_every: {max_train_steps}
+        width: {resolution}
+        height: {resolution}
+        prompts:
+          - "a photo of TOK person"
+          - "portrait of TOK person"
+          - "TOK person smiling"
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 4.0
+        sample_steps: 20
+meta:
+  name: "[time] {output_name}"
+  version: "1.0"
+"""
+    
+    # Save config file
+    config_path = f"/tmp/{output_name}_config.yaml"
+    with open(config_path, 'w') as f:
+        f.write(ai_config)
+    
+    logger.info(f"Generated ai-toolkit config: {config_path}")
+    return config_path
+
 def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> str:
-    """Train real FLUX LoRA using diffusers and peft"""
+    """Train FLUX LoRA using ostris/ai-toolkit"""
     try:
-        logger.info(f"Starting REAL LoRA training with config: {config}")
+        logger.info(f"Starting FLUX LoRA training with ai-toolkit: {config}")
         
         # Validate training images
         image_paths = []
@@ -246,201 +338,75 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         
         logger.info(f"Training on {len(image_paths)} valid images")
         
-        # Import training dependencies
-        from diffusers import FluxPipeline
-        from peft import LoraConfig, get_peft_model, TaskType
-        from transformers import CLIPTextModel, CLIPTokenizer
-        import torch.nn.functional as F
-        from torch.optim import AdamW
-        from torch.utils.data import Dataset, DataLoader
-        from torchvision import transforms
-        
-        # Load the base FLUX model for training
-        logger.info("Loading FLUX model for training...")
-        hf_token = os.environ.get("HF_TOKEN")
-        
-        # Create LoRA config with optimal settings for person training
-        network_dim = config.get("lora_rank", 16)  # 16 is good for facial identity
-        network_alpha = config.get("lora_alpha", 16)  # Usually same as dim
-        
-        lora_config = LoraConfig(
-            r=network_dim,
-            lora_alpha=network_alpha, 
-            target_modules=["to_k", "to_q", "to_v", "to_out.0"],  # FLUX transformer attention modules
-            lora_dropout=config.get("lora_dropout", 0.1),
-            bias="none",
-            task_type=TaskType.FEATURE_EXTRACTION,
-        )
-        
-        # Load model
-        flux_pipeline = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.bfloat16,
-            token=hf_token
-        )
-        
-        # Apply LoRA to transformer
-        flux_pipeline.transformer = get_peft_model(flux_pipeline.transformer, lora_config)
-        
-        logger.info(f"LoRA applied with rank={network_dim}, alpha={network_alpha}")
-        
-        # Training parameters  
-        resolution = config.get("resolution", 768)
-        max_train_steps = config.get("max_train_steps", 1000)
-        learning_rate = config.get("learning_rate", 5e-5)
-        train_batch_size = config.get("train_batch_size", 1)
+        # Create caption files for each image
         instance_prompt = config.get("instance_prompt", "a photo of TOK person")
+        for image_path in image_paths:
+            caption_path = image_path.rsplit('.', 1)[0] + '.txt'
+            if not os.path.exists(caption_path):
+                with open(caption_path, 'w') as f:
+                    f.write(instance_prompt)
         
-        logger.info("Creating training dataset...")
+        logger.info(f"Created {len(image_paths)} caption files")
         
-        # Create simple dataset
-        class LoRADataset(Dataset):
-            def __init__(self, image_paths, prompt, resolution):
-                self.image_paths = image_paths
-                self.prompt = prompt
-                self.resolution = resolution
-                self.transform = transforms.Compose([
-                    transforms.Resize((resolution, resolution)),
-                    transforms.RandomHorizontalFlip(p=0.5),  # Data augmentation
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.5], [0.5])
-                ])
-            
-            def __len__(self):
-                return len(self.image_paths)
-            
-            def __getitem__(self, idx):
-                image_path = self.image_paths[idx]
-                image = Image.open(image_path).convert("RGB")
-                image = self.transform(image)
-                return {"image": image, "prompt": self.prompt}
+        # Generate ai-toolkit config
+        config_path = create_ai_toolkit_config(training_dir, output_name, config)
         
-        dataset = LoRADataset(image_paths, instance_prompt, resolution)
-        dataloader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True)
+        # Run ai-toolkit training
+        logger.info("Starting ai-toolkit training...")
         
-        # Setup optimizer
-        optimizer = AdamW(
-            flux_pipeline.transformer.parameters(),
-            lr=learning_rate,
-            betas=(0.9, 0.999),
-            weight_decay=0.01,
-            eps=1e-8,
+        # Set environment variables for ai-toolkit
+        env = os.environ.copy()
+        env["HF_TOKEN"] = os.environ.get("HF_TOKEN")
+        env["CUDA_VISIBLE_DEVICES"] = "0"
+        
+        # Run training command
+        import subprocess
+        
+        cmd = [
+            "python", "/app/ai-toolkit/run.py", 
+            config_path
+        ]
+        
+        logger.info(f"Running command: {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd="/app/ai-toolkit",
+            env=env,
+            timeout=3600  # 1 hour timeout
         )
         
-        logger.info(f"Starting training: {max_train_steps} steps, lr={learning_rate}")
+        if result.returncode != 0:
+            logger.error(f"ai-toolkit training failed:")
+            logger.error(f"STDOUT: {result.stdout}")
+            logger.error(f"STDERR: {result.stderr}")
+            raise RuntimeError(f"ai-toolkit training failed: {result.stderr}")
         
-        # Move to GPU
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        flux_pipeline = flux_pipeline.to(device)
+        logger.info("ai-toolkit training completed successfully!")
+        logger.info(f"STDOUT: {result.stdout}")
         
-        # Training loop
-        flux_pipeline.transformer.train()
-        global_step = 0
+        # Find the generated LoRA file
+        output_dir = f"/runpod-volume/cache/lora/{output_name}"
+        lora_files = list(Path(output_dir).glob("*.safetensors"))
         
-        epochs_needed = max_train_steps // len(dataloader) + 1
+        if not lora_files:
+            raise FileNotFoundError(f"No LoRA files found in {output_dir}")
         
-        for epoch in range(epochs_needed):
-            if global_step >= max_train_steps:
-                break
-                
-            for batch in dataloader:
-                if global_step >= max_train_steps:
-                    break
-                
-                # Move batch to device
-                images = batch["image"].to(device, dtype=torch.bfloat16)
-                prompts = batch["prompt"]
-                
-                # Forward pass (simplified training step)
-                with torch.no_grad():
-                    # Encode text
-                    text_embeddings = flux_pipeline.text_encoder(
-                        flux_pipeline.tokenizer(
-                            prompts,
-                            padding="max_length",
-                            max_length=flux_pipeline.tokenizer.model_max_length,
-                            truncation=True,
-                            return_tensors="pt"
-                        ).input_ids.to(device)
-                    ).last_hidden_state
-                
-                # Add noise for diffusion training
-                noise = torch.randn_like(images)
-                timesteps = torch.randint(0, 1000, (images.shape[0],), device=device)
-                
-                # Training forward pass
-                optimizer.zero_grad()
-                
-                # Simplified loss computation for FLUX flow matching
-                with torch.cuda.amp.autocast(enabled=True):
-                    # Encode images to latent space
-                    latents = flux_pipeline.vae.encode(images).latent_dist.sample()
-                    latents = latents * flux_pipeline.vae.config.scaling_factor
-                    
-                    # For flow matching (FLUX), use a different approach
-                    # Generate random timesteps (0 to 1 for flow matching)
-                    timesteps = torch.rand((images.shape[0],), device=device)
-                    
-                    # Flow matching: interpolate between noise and data
-                    noise = torch.randn_like(latents)
-                    # Linear interpolation: x_t = (1-t) * noise + t * latents
-                    noisy_latents = (1 - timesteps.view(-1, 1, 1, 1)) * noise + timesteps.view(-1, 1, 1, 1) * latents
-                    
-                    # The target for flow matching is the vector field: latents - noise
-                    target = latents - noise
-                    
-                    # Convert timesteps to proper format for FLUX (scale to 0-1000 range)
-                    timesteps_scaled = (timesteps * 1000).long()
-                    
-                    # Predict the vector field
-                    model_pred = flux_pipeline.transformer(
-                        noisy_latents,
-                        timesteps_scaled,
-                        encoder_hidden_states=text_embeddings,
-                        return_dict=False
-                    )[0]
-                    
-                    # Compute flow matching loss
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                
-                # Backward pass
-                loss.backward()
-                optimizer.step()
-                
-                global_step += 1
-                
-                # Log progress
-                if global_step % 50 == 0:
-                    progress = (global_step / max_train_steps) * 100
-                    logger.info(f"Training progress: {progress:.1f}% ({global_step}/{max_train_steps} steps) - Loss: {loss.item():.4f}")
+        # Use the most recent LoRA file
+        lora_path = str(sorted(lora_files, key=lambda x: x.stat().st_mtime)[-1])
         
-        logger.info("Training completed! Saving LoRA weights...")
+        logger.info(f"✅ LoRA training completed: {lora_path}")
         
-        # Create output directory
-        os.makedirs("/runpod-volume/cache/lora", exist_ok=True)  # Use cache/lora as requested
-        output_path = f"/runpod-volume/cache/lora/{output_name}.safetensors"
+        # Clean up config file
+        if os.path.exists(config_path):
+            os.remove(config_path)
         
-        # Save LoRA weights
-        flux_pipeline.transformer.save_pretrained(output_path.replace('.safetensors', ''))
-        
-        # Also save as safetensors for compatibility
-        lora_state_dict = flux_pipeline.transformer.state_dict()
-        from safetensors.torch import save_file
-        save_file(lora_state_dict, output_path)
-        
-        logger.info(f"✅ REAL LoRA saved to: {output_path}")
-        logger.info("🎉 Training completed successfully!")
-        
-        # Clean up GPU memory after training
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        gc.collect()
-        
-        return output_path
+        return lora_path
         
     except Exception as e:
-        logger.error(f"❌ Error during LoRA training: {e}")
+        logger.error(f"❌ Error during ai-toolkit LoRA training: {e}")
         raise e
 
 def load_lora_weights(pipeline, lora_path: str):
