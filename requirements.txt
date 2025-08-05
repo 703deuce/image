@@ -11,9 +11,9 @@ requests==2.32.3
 protobuf==4.25.4
 accelerate>=0.34.0
 
-# LoRA training dependencies
-peft==0.12.0
-datasets==2.20.0
-bitsandbytes==0.43.1
-scipy==1.11.4
-tqdm==4.66.4
+# LoRA training dependencies - Updated for FLUX compatibility
+peft>=0.15.0
+datasets>=2.20.0
+bitsandbytes>=0.43.1
+scipy>=1.11.4
+tqdm>=4.66.4
