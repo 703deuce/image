@@ -225,9 +225,9 @@ def load_lora_weights(pipeline, lora_path: str):
         
         # Try to load LoRA weights with proper error handling
         try:
-            # Load LoRA weights - diffusers should handle device placement automatically
-            pipeline.load_lora_weights(lora_path)
-            logger.info("LoRA weights loaded into pipeline")
+            # Load LoRA weights with adapter name for newer diffusers
+            pipeline.load_lora_weights(lora_path, adapter_name="flux_lora")
+            logger.info("LoRA weights loaded into pipeline with adapter name 'flux_lora'")
             
             # DEBUG: Check available adapters after loading
             available_adapters = []
@@ -246,33 +246,41 @@ def load_lora_weights(pipeline, lora_path: str):
             # Try to set LoRA adapters with stronger weight
             adapter_activated = False
             
-            # Method 1: Try default adapter name
+            # Method 1: Try the named adapter we just loaded
             try:
-                pipeline.set_adapters(["default"], adapter_weights=[1.5])  # Higher weight for stronger effect
-                logger.info("✅ LoRA adapters activated with 'default' name and weight 1.5")
+                pipeline.set_adapters(["flux_lora"], adapter_weights=[1.5])  # Higher weight for stronger effect
+                logger.info("✅ LoRA adapters activated with 'flux_lora' name and weight 1.5")
                 adapter_activated = True
             except Exception as adapter_error:
-                logger.warning(f"Failed to set 'default' adapter: {adapter_error}")
+                logger.warning(f"Failed to set 'flux_lora' adapter: {adapter_error}")
                 
-                # Method 2: Try first available adapter
-                if available_adapters:
-                    try:
-                        first_adapter = available_adapters[0]
-                        pipeline.set_adapters([first_adapter], adapter_weights=[1.5])
-                        logger.info(f"✅ LoRA adapters activated with '{first_adapter}' and weight 1.5")
-                        adapter_activated = True
-                    except Exception as fallback_error:
-                        logger.error(f"Failed to set adapter '{first_adapter}': {fallback_error}")
+                # Method 2: Try default adapter name
+                try:
+                    pipeline.set_adapters(["default"], adapter_weights=[1.5])
+                    logger.info("✅ LoRA adapters activated with 'default' name and weight 1.5")
+                    adapter_activated = True
+                except Exception as default_error:
+                    logger.warning(f"Failed to set 'default' adapter: {default_error}")
                 
-                # Method 3: Try without explicit adapter names (auto-detection)
-                if not adapter_activated:
-                    try:
-                        if hasattr(pipeline, 'fuse_lora'):
-                            pipeline.fuse_lora(lora_scale=1.5)
-                            logger.info("✅ LoRA fused directly with scale 1.5")
+                    # Method 3: Try first available adapter
+                    if available_adapters:
+                        try:
+                            first_adapter = available_adapters[0]
+                            pipeline.set_adapters([first_adapter], adapter_weights=[1.5])
+                            logger.info(f"✅ LoRA adapters activated with '{first_adapter}' and weight 1.5")
                             adapter_activated = True
-                    except Exception as fuse_error:
-                        logger.warning(f"Failed to fuse LoRA: {fuse_error}")
+                        except Exception as fallback_error:
+                            logger.error(f"Failed to set adapter '{first_adapter}': {fallback_error}")
+            
+            # Method 4: Try without explicit adapter names (auto-detection)
+            if not adapter_activated:
+                try:
+                    if hasattr(pipeline, 'fuse_lora'):
+                        pipeline.fuse_lora(lora_scale=1.5)
+                        logger.info("✅ LoRA fused directly with scale 1.5")
+                        adapter_activated = True
+                except Exception as fuse_error:
+                    logger.warning(f"Failed to fuse LoRA: {fuse_error}")
             
             if not adapter_activated:
                 logger.error("❌ Failed to activate LoRA adapters - continuing anyway")

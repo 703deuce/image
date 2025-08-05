@@ -1,15 +1,15 @@
-# Minimal, pinned versions for reliable builds
+# Updated versions for proper FLUX LoRA support
 runpod==1.6.2
 torch==2.2.0
-diffusers==0.30.3
-transformers==4.44.2
+diffusers>=0.31.0
+transformers>=4.45.0
 safetensors==0.4.5
 sentencepiece==0.2.0
 Pillow==10.4.0
 numpy==1.24.4
 requests==2.32.3
 protobuf==4.25.4
-accelerate==0.33.0
+accelerate>=0.34.0
 
 # LoRA training dependencies
 peft==0.12.0
