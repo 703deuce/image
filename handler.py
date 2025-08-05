@@ -350,18 +350,35 @@ def setup_ai_toolkit():
                 "--index-url", "https://download.pytorch.org/whl/cu121"
             ], check=True)
         
+        # Create python packages directory
+        os.makedirs("/runpod-volume/python-packages", exist_ok=True)
+        
         # Install ai-toolkit requirements to persistent volume (avoid disk space issues)
         logger.info("🔄 Installing ai-toolkit requirements to persistent volume...")
-        subprocess.run([
+        result = subprocess.run([
             sys.executable, "-m", "pip", "install", "--no-cache-dir",
             "--target", "/runpod-volume/python-packages",
             "-r", "/runpod-volume/ai-toolkit/requirements.txt"
-        ], check=True)
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"❌ Failed to install requirements: {result.stderr}")
+            raise RuntimeError(f"Requirements installation failed: {result.stderr}")
+        
+        logger.info("✅ ai-toolkit requirements installed successfully")
         
         # Add to Python path so packages can be found
         import sys
         if "/runpod-volume/python-packages" not in sys.path:
             sys.path.insert(0, "/runpod-volume/python-packages")
+            
+        # Verify critical packages can be imported
+        try:
+            import oyaml
+            logger.info("✅ oyaml package verified")
+        except ImportError as e:
+            logger.error(f"❌ Critical package missing: {e}")
+            raise
         
         logger.info("✅ ai-toolkit installed successfully at runtime")
         return "manual"
@@ -417,12 +434,20 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         env = os.environ.copy()
         env["HF_TOKEN"] = os.environ.get("HF_TOKEN")
         env["CUDA_VISIBLE_DEVICES"] = "0"
-        # Add persistent volume Python packages to path
+        
+        # Ensure Python can find packages in persistent volume
         current_pythonpath = env.get("PYTHONPATH", "")
+        python_paths = ["/runpod-volume/python-packages"]
         if current_pythonpath:
-            env["PYTHONPATH"] = f"/runpod-volume/python-packages:{current_pythonpath}"
-        else:
-            env["PYTHONPATH"] = "/runpod-volume/python-packages"
+            python_paths.append(current_pythonpath)
+        env["PYTHONPATH"] = ":".join(python_paths)
+        
+        logger.info(f"🐍 PYTHONPATH set to: {env['PYTHONPATH']}")
+        
+        # Also add to current Python path for safety
+        import sys
+        if "/runpod-volume/python-packages" not in sys.path:
+            sys.path.insert(0, "/runpod-volume/python-packages")
         
         # Run ai-toolkit as script (it's not a pip package)
         import subprocess
