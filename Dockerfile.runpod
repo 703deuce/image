@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Install ostris/ai-toolkit for proper FLUX LoRA training to persistent volume
-# Cache buster - change this date to force rebuild: 2025-01-26-14:15
+ARG CACHEBUST=1
 RUN mkdir -p /runpod-volume && \
     git clone https://github.com/ostris/ai-toolkit.git /runpod-volume/ai-toolkit && \
     cd /runpod-volume/ai-toolkit && \
