@@ -17,3 +17,4 @@ datasets>=2.20.0
 bitsandbytes>=0.43.1
 scipy>=1.11.4
 tqdm>=4.66.4
+torchvision>=0.15.0
