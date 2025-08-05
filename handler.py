@@ -70,6 +70,72 @@ def load_model():
     
     return pipeline
 
+def load_krea_model():
+    """Load the FLUX.1-Krea-dev model pipeline with custom VAE"""
+    global krea_pipeline
+    
+    if krea_pipeline is None:
+        logger.info("Loading FLUX.1-Krea-dev model...")
+        
+        try:
+            # Get HF token for gated model access
+            hf_token = os.environ.get("HF_TOKEN")
+            if not hf_token:
+                raise ValueError("HF_TOKEN environment variable is required for FLUX.1-Krea-dev access")
+            
+            # Debug: Check cache and directories
+            logger.info("=== DEBUGGING KREA MODEL LOADING ===")
+            logger.info(f"HF_TOKEN: {'SET' if hf_token else 'NONE'}")
+            logger.info(f"Cache dir exists: {os.path.exists('/runpod-volume/cache')}")
+            logger.info(f"Loading from: black-forest-labs/FLUX.1-Krea-dev")
+            
+            # Load FLUX.1-Krea-dev pipeline from HuggingFace
+            logger.info("Loading FLUX.1-Krea-dev pipeline components...")
+            krea_pipeline = FluxPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-Krea-dev",  # Correct Krea repository
+                torch_dtype=torch.bfloat16,
+                token=hf_token,
+                cache_dir="/runpod-volume/cache"  # Same cache location as regular model
+            )
+            
+            logger.info("✅ FLUX.1-Krea-dev pipeline loaded successfully!")
+            
+            # Load custom VAE (ae.safetensors) for enhanced quality
+            logger.info("Loading custom VAE from Krea model...")
+            try:
+                from diffusers import AutoencoderKL
+                
+                # Load the custom VAE (ae.safetensors) from the Krea repository
+                custom_vae = AutoencoderKL.from_pretrained(
+                    "black-forest-labs/FLUX.1-Krea-dev",
+                    subfolder="vae",  # VAE is in the vae subfolder
+                    torch_dtype=torch.bfloat16,
+                    token=hf_token,
+                    cache_dir="/runpod-volume/cache"
+                )
+                
+                # Replace the default VAE with the custom one (ae.safetensors)
+                krea_pipeline.vae = custom_vae
+                logger.info("✅ Custom VAE (ae.safetensors) loaded and applied to Krea pipeline")
+                
+            except Exception as vae_error:
+                logger.warning(f"⚠️ Could not load custom VAE: {vae_error}")
+                logger.info("Continuing with default VAE (reduced quality)...")
+            
+            # Move to GPU
+            logger.info("Moving Krea pipeline to CUDA...")
+            krea_pipeline = krea_pipeline.to("cuda")
+            logger.info("Krea pipeline loaded successfully on GPU")
+            
+            logger.info("✅ FLUX.1-Krea-dev model with custom VAE loaded successfully!")
+            logger.info(f"📁 Cached to: /runpod-volume/cache")
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading Krea model: {e}")
+            raise e
+    
+    return krea_pipeline
+
 def image_to_base64(image: Image.Image, format: str = "PNG") -> str:
     """Convert PIL Image to base64 string"""
     buffer = io.BytesIO()
