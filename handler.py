@@ -338,13 +338,17 @@ def setup_ai_toolkit():
             "/runpod-volume/ai-toolkit"
         ], check=True, cwd="/runpod-volume")
         
-        # Install torch first (matching our Dockerfile approach)
-        logger.info("🔄 Installing torch for CUDA 12.1...")
-        subprocess.run([
-            sys.executable, "-m", "pip", "install", "--no-cache-dir",
-            "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1",
-            "--index-url", "https://download.pytorch.org/whl/cu121"
-        ], check=True)
+        # Check torch installation (RunPod may already have it)
+        try:
+            import torch
+            logger.info(f"✅ Using existing torch {torch.__version__}")
+        except ImportError:
+            logger.info("🔄 Installing torch for CUDA 12.1...")
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "--no-cache-dir",
+                "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1",
+                "--index-url", "https://download.pytorch.org/whl/cu121"
+            ], check=True)
         
         # Install ai-toolkit requirements
         logger.info("🔄 Installing ai-toolkit requirements...")
