@@ -314,6 +314,27 @@ meta:
     logger.info(f"Generated ai-toolkit config: {config_path}")
     return config_path
 
+def setup_ai_toolkit():
+    """Ensure ai-toolkit is available in persistent volume"""
+    import subprocess
+    
+    if not os.path.exists("/runpod-volume/ai-toolkit"):
+        logger.info("📦 Setting up ai-toolkit in persistent volume...")
+        try:
+            # Run the setup script
+            result = subprocess.run(["/app/setup-ai-toolkit.sh"], 
+                                  capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                logger.info("✅ ai-toolkit setup complete")
+            else:
+                logger.error(f"❌ ai-toolkit setup failed: {result.stderr}")
+                raise RuntimeError("ai-toolkit setup failed")
+        except Exception as e:
+            logger.error(f"❌ Error setting up ai-toolkit: {e}")
+            raise e
+    else:
+        logger.info("✅ ai-toolkit already available in persistent volume")
+
 def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> str:
     """Train FLUX LoRA using ostris/ai-toolkit"""
     try:
@@ -347,6 +368,9 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
                     f.write(instance_prompt)
         
         logger.info(f"Created {len(image_paths)} caption files")
+        
+        # Ensure ai-toolkit is in persistent volume
+        setup_ai_toolkit()
         
         # Generate ai-toolkit config
         config_path = create_ai_toolkit_config(training_dir, output_name, config)

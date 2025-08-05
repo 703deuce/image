@@ -29,12 +29,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Install ostris/ai-toolkit for proper FLUX LoRA training to persistent volume
+# Install ostris/ai-toolkit for proper FLUX LoRA training
 ARG CACHEBUST=1
-RUN mkdir -p /runpod-volume && \
-    git clone https://github.com/ostris/ai-toolkit.git /runpod-volume/ai-toolkit && \
-    cd /runpod-volume/ai-toolkit && \
+RUN git clone https://github.com/ostris/ai-toolkit.git /app/ai-toolkit && \
+    cd /app/ai-toolkit && \
     pip install --no-cache-dir -r requirements.txt
+
+# Copy ai-toolkit to volume at runtime (create a setup script)
+RUN echo '#!/bin/bash\nif [ ! -d "/runpod-volume/ai-toolkit" ]; then\n  echo "📦 Copying ai-toolkit to persistent volume..."\n  cp -r /app/ai-toolkit /runpod-volume/ai-toolkit\n  echo "✅ ai-toolkit copied to /runpod-volume/ai-toolkit"\nfi' > /app/setup-ai-toolkit.sh && \
+    chmod +x /app/setup-ai-toolkit.sh
 
 # Skip flash-attention - use standard attention for guaranteed compatibility
 # This ensures faster builds and no dependency issues
