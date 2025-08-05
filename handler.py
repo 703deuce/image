@@ -230,31 +230,52 @@ def load_lora_weights(pipeline, lora_path: str):
             logger.info("LoRA weights loaded into pipeline")
             
             # DEBUG: Check available adapters after loading
+            available_adapters = []
             try:
                 if hasattr(pipeline, 'adapters'):
                     available_adapters = list(pipeline.adapters.keys())
                     logger.info(f"Available adapters: {available_adapters}")
+                elif hasattr(pipeline.transformer, 'adapters'):
+                    available_adapters = list(pipeline.transformer.adapters.keys())
+                    logger.info(f"Available transformer adapters: {available_adapters}")
                 else:
                     logger.info("No adapters attribute found")
             except Exception as adapter_check_error:
                 logger.warning(f"Could not check adapters: {adapter_check_error}")
             
-            # Try to set LoRA adapters - use first available adapter if "default" doesn't exist
+            # Try to set LoRA adapters with stronger weight
+            adapter_activated = False
+            
+            # Method 1: Try default adapter name
             try:
-                pipeline.set_adapters(["default"], adapter_weights=[1.0])
-                logger.info("LoRA adapters activated with 'default' name and weight 1.0")
+                pipeline.set_adapters(["default"], adapter_weights=[1.5])  # Higher weight for stronger effect
+                logger.info("✅ LoRA adapters activated with 'default' name and weight 1.5")
+                adapter_activated = True
             except Exception as adapter_error:
                 logger.warning(f"Failed to set 'default' adapter: {adapter_error}")
-                # Try to find and use the first available adapter
-                try:
-                    if hasattr(pipeline, 'adapters') and pipeline.adapters:
-                        first_adapter = list(pipeline.adapters.keys())[0]
-                        pipeline.set_adapters([first_adapter], adapter_weights=[1.0])
-                        logger.info(f"LoRA adapters activated with '{first_adapter}' name and weight 1.0")
-                    else:
-                        logger.error("No adapters available to activate")
-                except Exception as fallback_error:
-                    logger.error(f"Failed to set any adapter: {fallback_error}")
+                
+                # Method 2: Try first available adapter
+                if available_adapters:
+                    try:
+                        first_adapter = available_adapters[0]
+                        pipeline.set_adapters([first_adapter], adapter_weights=[1.5])
+                        logger.info(f"✅ LoRA adapters activated with '{first_adapter}' and weight 1.5")
+                        adapter_activated = True
+                    except Exception as fallback_error:
+                        logger.error(f"Failed to set adapter '{first_adapter}': {fallback_error}")
+                
+                # Method 3: Try without explicit adapter names (auto-detection)
+                if not adapter_activated:
+                    try:
+                        if hasattr(pipeline, 'fuse_lora'):
+                            pipeline.fuse_lora(lora_scale=1.5)
+                            logger.info("✅ LoRA fused directly with scale 1.5")
+                            adapter_activated = True
+                    except Exception as fuse_error:
+                        logger.warning(f"Failed to fuse LoRA: {fuse_error}")
+            
+            if not adapter_activated:
+                logger.error("❌ Failed to activate LoRA adapters - continuing anyway")
             
         except Exception as lora_error:
             # If there's a device error, try explicit device management
@@ -268,8 +289,13 @@ def load_lora_weights(pipeline, lora_path: str):
             # Reload and move to device
             pipeline.load_lora_weights(lora_path)
             pipeline = pipeline.to(device)
-            pipeline.set_adapters(["default"], adapter_weights=[1.0])
-            logger.info("LoRA loaded with explicit device management")
+            
+            # Try to activate with stronger weight
+            try:
+                pipeline.set_adapters(["default"], adapter_weights=[1.5])
+                logger.info("✅ LoRA loaded with explicit device management and weight 1.5")
+            except:
+                logger.warning("⚠️ LoRA loaded but adapter activation uncertain")
         
         loaded_lora_path = lora_path
         logger.info("✅ LoRA weights loaded and applied successfully!")
@@ -294,7 +320,7 @@ def validate_parameters(job_input: Dict[str, Any]) -> Dict[str, Any]:
         "prompt": job_input["prompt"],
         "height": job_input.get("height", 1024),
         "width": job_input.get("width", 1024),
-        "guidance_scale": job_input.get("guidance_scale", 6.0),
+        "guidance_scale": job_input.get("guidance_scale", 3.0),
         "num_inference_steps": job_input.get("num_inference_steps", 50),
         "max_sequence_length": job_input.get("max_sequence_length", 512),
         "seed": job_input.get("seed", None),
@@ -586,7 +612,7 @@ def handler(job):
                     "prompt": {"type": "string", "required": True, "description": "Text description for image generation"},
                     "height": {"type": "integer", "default": 1024, "range": [256, 2048], "description": "Image height in pixels"},
                     "width": {"type": "integer", "default": 1024, "range": [256, 2048], "description": "Image width in pixels"},
-                    "guidance_scale": {"type": "float", "default": 3.5, "range": [0, 20], "description": "Guidance scale for generation"},
+                    "guidance_scale": {"type": "float", "default": 3.0, "range": [0, 20], "description": "Guidance scale for generation"},
                     "num_inference_steps": {"type": "integer", "default": 50, "range": [1, 100], "description": "Number of denoising steps"},
                     "max_sequence_length": {"type": "integer", "default": 512, "range": [1, 1024], "description": "Maximum sequence length for text encoding"},
                     "seed": {"type": "integer", "default": None, "description": "Random seed for reproducible generation"},
