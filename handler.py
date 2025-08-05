@@ -229,9 +229,32 @@ def load_lora_weights(pipeline, lora_path: str):
             pipeline.load_lora_weights(lora_path)
             logger.info("LoRA weights loaded into pipeline")
             
-            # Set LoRA scale for strength (1.0 = full strength)
-            pipeline.set_adapters(["default"], adapter_weights=[1.0])
-            logger.info("LoRA adapters activated with weight 1.0")
+            # DEBUG: Check available adapters after loading
+            try:
+                if hasattr(pipeline, 'adapters'):
+                    available_adapters = list(pipeline.adapters.keys())
+                    logger.info(f"Available adapters: {available_adapters}")
+                else:
+                    logger.info("No adapters attribute found")
+            except Exception as adapter_check_error:
+                logger.warning(f"Could not check adapters: {adapter_check_error}")
+            
+            # Try to set LoRA adapters - use first available adapter if "default" doesn't exist
+            try:
+                pipeline.set_adapters(["default"], adapter_weights=[1.0])
+                logger.info("LoRA adapters activated with 'default' name and weight 1.0")
+            except Exception as adapter_error:
+                logger.warning(f"Failed to set 'default' adapter: {adapter_error}")
+                # Try to find and use the first available adapter
+                try:
+                    if hasattr(pipeline, 'adapters') and pipeline.adapters:
+                        first_adapter = list(pipeline.adapters.keys())[0]
+                        pipeline.set_adapters([first_adapter], adapter_weights=[1.0])
+                        logger.info(f"LoRA adapters activated with '{first_adapter}' name and weight 1.0")
+                    else:
+                        logger.error("No adapters available to activate")
+                except Exception as fallback_error:
+                    logger.error(f"Failed to set any adapter: {fallback_error}")
             
         except Exception as lora_error:
             # If there's a device error, try explicit device management
@@ -271,7 +294,7 @@ def validate_parameters(job_input: Dict[str, Any]) -> Dict[str, Any]:
         "prompt": job_input["prompt"],
         "height": job_input.get("height", 1024),
         "width": job_input.get("width", 1024),
-        "guidance_scale": job_input.get("guidance_scale", 3.5),
+        "guidance_scale": job_input.get("guidance_scale", 6.0),
         "num_inference_steps": job_input.get("num_inference_steps", 50),
         "max_sequence_length": job_input.get("max_sequence_length", 512),
         "seed": job_input.get("seed", None),
