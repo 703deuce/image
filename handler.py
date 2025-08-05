@@ -363,7 +363,7 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         import subprocess
         
         cmd = [
-            "python", "/app/ai-toolkit/run.py", 
+            "python", "/runpod-volume/ai-toolkit/run.py", 
             config_path
         ]
         
@@ -373,7 +373,7 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
             cmd,
             capture_output=True,
             text=True,
-            cwd="/app/ai-toolkit",
+            cwd="/runpod-volume/ai-toolkit",
             env=env,
             timeout=3600  # 1 hour timeout
         )
