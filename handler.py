@@ -7,7 +7,7 @@ import shutil
 import time
 import json
 from PIL import Image
-from diffusers import FluxPipeline
+from diffusers import FluxPipeline, AutoencoderKL
 # Simplified imports for LoRA functionality
 import logging
 import gc
@@ -103,24 +103,48 @@ def load_krea_model():
             # Load custom VAE (ae.safetensors) for enhanced quality
             logger.info("Loading custom VAE from Krea model...")
             try:
-                from diffusers import AutoencoderKL
+                # For FLUX models, the VAE might be directly in the main repo, not subfolder
+                # Try multiple approaches to load the custom VAE
+                custom_vae = None
                 
-                # Load the custom VAE (ae.safetensors) from the Krea repository
-                custom_vae = AutoencoderKL.from_pretrained(
-                    "black-forest-labs/FLUX.1-Krea-dev",
-                    subfolder="vae",  # VAE is in the vae subfolder
-                    torch_dtype=torch.bfloat16,
-                    token=hf_token,
-                    cache_dir="/runpod-volume/cache"
-                )
+                # Method 1: Try loading from vae subfolder
+                try:
+                    custom_vae = AutoencoderKL.from_pretrained(
+                        "black-forest-labs/FLUX.1-Krea-dev",
+                        subfolder="vae",
+                        torch_dtype=torch.bfloat16,
+                        token=hf_token,
+                        cache_dir="/runpod-volume/cache"
+                    )
+                    logger.info("✅ Custom VAE loaded from vae subfolder")
+                except Exception as subfolder_error:
+                    logger.info(f"VAE subfolder method failed: {subfolder_error}")
+                    
+                    # Method 2: Try loading VAE directly from main repo
+                    try:
+                        # The ae.safetensors might be the main VAE file
+                        custom_vae = AutoencoderKL.from_pretrained(
+                            "black-forest-labs/FLUX.1-Krea-dev",
+                            torch_dtype=torch.bfloat16,
+                            token=hf_token,
+                            cache_dir="/runpod-volume/cache",
+                            # Look specifically for ae.safetensors
+                            use_safetensors=True
+                        )
+                        logger.info("✅ Custom VAE loaded from main repository")
+                    except Exception as main_error:
+                        logger.warning(f"Main repo VAE loading failed: {main_error}")
+                        raise Exception("Both VAE loading methods failed")
                 
-                # Replace the default VAE with the custom one (ae.safetensors)
-                krea_pipeline.vae = custom_vae
-                logger.info("✅ Custom VAE (ae.safetensors) loaded and applied to Krea pipeline")
+                if custom_vae:
+                    # Replace the default VAE with the custom one (ae.safetensors)
+                    krea_pipeline.vae = custom_vae
+                    logger.info("✅ Custom VAE (ae.safetensors) loaded and applied to Krea pipeline")
                 
             except Exception as vae_error:
                 logger.warning(f"⚠️ Could not load custom VAE: {vae_error}")
                 logger.info("Continuing with default VAE (reduced quality)...")
+                logger.info("The Krea model will still work, but without enhanced VAE quality")
             
             # Move to GPU
             logger.info("Moving Krea pipeline to CUDA...")
