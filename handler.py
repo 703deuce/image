@@ -315,31 +315,46 @@ meta:
     return config_path
 
 def setup_ai_toolkit():
-    """Ensure ai-toolkit is available - script-based installation only"""
+    """Install ai-toolkit at runtime to persistent volume (like model weights)"""
     try:
         logger.info("🔍 Checking for ai-toolkit installation...")
         
-        # ai-toolkit is NOT a pip package - it's a script collection
-        # Check for manual installation paths
-        
+        # Check if already installed in persistent volume
         if os.path.exists("/runpod-volume/ai-toolkit/run.py"):
-            logger.info("✅ ai-toolkit found in persistent volume: /runpod-volume/ai-toolkit/run.py")
+            logger.info("✅ ai-toolkit found in persistent volume")
             return "manual"
-        elif os.path.exists("/app/ai-toolkit/run.py"):
-            logger.info("✅ ai-toolkit found in app directory: /app/ai-toolkit/run.py")
-            logger.info("📦 Copying ai-toolkit from /app to /runpod-volume...")
-            import shutil
-            shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
-            logger.info("✅ ai-toolkit copied to persistent volume")
-            return "manual"
-        else:
-            # Debug: List directories to see what's available
-            logger.error("❌ ai-toolkit not found in expected locations")
-            if os.path.exists("/app"):
-                logger.info(f"📁 /app contents: {os.listdir('/app')}")
-            if os.path.exists("/runpod-volume"):
-                logger.info(f"📁 /runpod-volume contents: {os.listdir('/runpod-volume')}")
-            raise RuntimeError("ai-toolkit not found - /app/ai-toolkit/run.py missing")
+        
+        # Runtime installation to persistent volume (like model weights)
+        logger.info("📦 Installing ai-toolkit at runtime to persistent volume...")
+        
+        import subprocess
+        import sys
+        
+        # Clone ai-toolkit to persistent volume
+        logger.info("🔄 Cloning ai-toolkit repository...")
+        subprocess.run([
+            "git", "clone", "--recursive",
+            "https://github.com/ostris/ai-toolkit.git", 
+            "/runpod-volume/ai-toolkit"
+        ], check=True, cwd="/runpod-volume")
+        
+        # Install torch first (matching our Dockerfile approach)
+        logger.info("🔄 Installing torch for CUDA 12.1...")
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1",
+            "--index-url", "https://download.pytorch.org/whl/cu121"
+        ], check=True)
+        
+        # Install ai-toolkit requirements
+        logger.info("🔄 Installing ai-toolkit requirements...")
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "-r", "/runpod-volume/ai-toolkit/requirements.txt"
+        ], check=True)
+        
+        logger.info("✅ ai-toolkit installed successfully at runtime")
+        return "manual"
                 
     except Exception as e:
         logger.error(f"❌ Error setting up ai-toolkit: {e}")
@@ -397,9 +412,9 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         import subprocess
         import sys
         
-        # ai-toolkit is executed via its main run.py script (per official docs)
+        # ai-toolkit is always used as a script, never as a package
         cmd = [
-            sys.executable, "run.py", 
+            sys.executable, "/runpod-volume/ai-toolkit/run.py", 
             config_path
         ]
         cwd = "/runpod-volume/ai-toolkit"
