@@ -222,10 +222,31 @@ def load_lora_weights(pipeline, lora_path: str):
         
         # Load LoRA weights using diffusers built-in method
         logger.info(f"Loading LoRA file: {lora_path} ({os.path.getsize(lora_path)} bytes)")
-        pipeline.load_lora_weights(lora_path)
         
-        # Set LoRA scale for strength (1.0 = full strength)
-        pipeline.set_adapters(["default"], adapter_weights=[1.0])
+        # Try to load LoRA weights with proper error handling
+        try:
+            # Load LoRA weights - diffusers should handle device placement automatically
+            pipeline.load_lora_weights(lora_path)
+            logger.info("LoRA weights loaded into pipeline")
+            
+            # Set LoRA scale for strength (1.0 = full strength)
+            pipeline.set_adapters(["default"], adapter_weights=[1.0])
+            logger.info("LoRA adapters activated with weight 1.0")
+            
+        except Exception as lora_error:
+            # If there's a device error, try explicit device management
+            logger.warning(f"Standard LoRA loading failed: {lora_error}")
+            logger.info("Attempting LoRA loading with explicit device management...")
+            
+            # Get pipeline device
+            device = next(pipeline.transformer.parameters()).device
+            logger.info(f"Pipeline is on device: {device}")
+            
+            # Reload and move to device
+            pipeline.load_lora_weights(lora_path)
+            pipeline = pipeline.to(device)
+            pipeline.set_adapters(["default"], adapter_weights=[1.0])
+            logger.info("LoRA loaded with explicit device management")
         
         loaded_lora_path = lora_path
         logger.info("✅ LoRA weights loaded and applied successfully!")
