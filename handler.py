@@ -279,25 +279,37 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
                 # Training forward pass
                 optimizer.zero_grad()
                 
-                # Simplified loss computation for LoRA training
+                # Simplified loss computation for FLUX flow matching
                 with torch.cuda.amp.autocast(enabled=True):
-                    # This is a simplified training step - in production you'd use the full diffusion loss
+                    # Encode images to latent space
                     latents = flux_pipeline.vae.encode(images).latent_dist.sample()
                     latents = latents * flux_pipeline.vae.config.scaling_factor
                     
-                    # Add noise
-                    noisy_latents = flux_pipeline.scheduler.add_noise(latents, noise, timesteps)
+                    # For flow matching (FLUX), use a different approach
+                    # Generate random timesteps (0 to 1 for flow matching)
+                    timesteps = torch.rand((images.shape[0],), device=device)
                     
-                    # Predict noise
+                    # Flow matching: interpolate between noise and data
+                    noise = torch.randn_like(latents)
+                    # Linear interpolation: x_t = (1-t) * noise + t * latents
+                    noisy_latents = (1 - timesteps.view(-1, 1, 1, 1)) * noise + timesteps.view(-1, 1, 1, 1) * latents
+                    
+                    # The target for flow matching is the vector field: latents - noise
+                    target = latents - noise
+                    
+                    # Convert timesteps to proper format for FLUX (scale to 0-1000 range)
+                    timesteps_scaled = (timesteps * 1000).long()
+                    
+                    # Predict the vector field
                     model_pred = flux_pipeline.transformer(
                         noisy_latents,
-                        timesteps,
+                        timesteps_scaled,
                         encoder_hidden_states=text_embeddings,
                         return_dict=False
                     )[0]
                     
-                    # Compute loss
-                    loss = F.mse_loss(model_pred.float(), noise.float(), reduction="mean")
+                    # Compute flow matching loss
+                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
                 
                 # Backward pass
                 loss.backward()
