@@ -315,32 +315,38 @@ meta:
     return config_path
 
 def setup_ai_toolkit():
-    """Ensure ai-toolkit is available in persistent volume"""
-    import subprocess
-    import shutil
-    
-    if not os.path.exists("/runpod-volume/ai-toolkit"):
-        logger.info("📦 Setting up ai-toolkit in persistent volume...")
-        try:
-            # Check if source exists
-            if not os.path.exists("/app/ai-toolkit"):
-                raise RuntimeError("ai-toolkit source not found at /app/ai-toolkit")
+    """Ensure ai-toolkit is available - now installed via pip"""
+    try:
+        # Test if ai-toolkit is available as installed package
+        import sys
+        import subprocess
+        
+        # Check if we can import the toolkit
+        result = subprocess.run([sys.executable, "-c", "import ai_toolkit; print('ai-toolkit available')"], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            logger.info("✅ ai-toolkit is available as installed package")
+            return "package"
+        else:
+            logger.info("ai-toolkit package not found, checking for manual installation...")
             
-            # Copy directly using Python instead of shell script
-            logger.info("Copying ai-toolkit from /app to /runpod-volume...")
-            shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
-            
-            # Verify the copy worked
+            # Fallback: check if manual installation exists
             if os.path.exists("/runpod-volume/ai-toolkit/run.py"):
-                logger.info("✅ ai-toolkit setup complete")
+                logger.info("✅ ai-toolkit available via manual installation")
+                return "manual"
+            elif os.path.exists("/app/ai-toolkit/run.py"):
+                logger.info("📦 Copying ai-toolkit from /app to /runpod-volume...")
+                import shutil
+                shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
+                logger.info("✅ ai-toolkit copied to persistent volume")
+                return "manual"
             else:
-                raise RuntimeError("ai-toolkit copy verification failed")
+                raise RuntimeError("ai-toolkit not found via pip or manual installation")
                 
-        except Exception as e:
-            logger.error(f"❌ Error setting up ai-toolkit: {e}")
-            raise e
-    else:
-        logger.info("✅ ai-toolkit already available in persistent volume")
+    except Exception as e:
+        logger.error(f"❌ Error setting up ai-toolkit: {e}")
+        raise e
 
 def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> str:
     """Train FLUX LoRA using ostris/ai-toolkit"""
@@ -376,8 +382,8 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         
         logger.info(f"Created {len(image_paths)} caption files")
         
-        # Ensure ai-toolkit is in persistent volume
-        setup_ai_toolkit()
+        # Ensure ai-toolkit is available
+        toolkit_type = setup_ai_toolkit()
         
         # Generate ai-toolkit config
         config_path = create_ai_toolkit_config(training_dir, output_name, config)
@@ -390,13 +396,24 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         env["HF_TOKEN"] = os.environ.get("HF_TOKEN")
         env["CUDA_VISIBLE_DEVICES"] = "0"
         
-        # Run training command
+        # Run training command based on installation type
         import subprocess
+        import sys
         
-        cmd = [
-            "python", "/runpod-volume/ai-toolkit/run.py", 
-            config_path
-        ]
+        if toolkit_type == "package":
+            # Use ai-toolkit as installed package
+            cmd = [
+                sys.executable, "-m", "ai_toolkit.run", 
+                config_path
+            ]
+            cwd = None
+        else:
+            # Use manual installation
+            cmd = [
+                sys.executable, "/runpod-volume/ai-toolkit/run.py", 
+                config_path
+            ]
+            cwd = "/runpod-volume/ai-toolkit"
         
         logger.info(f"Running command: {' '.join(cmd)}")
         
@@ -404,7 +421,7 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
             cmd,
             capture_output=True,
             text=True,
-            cwd="/runpod-volume/ai-toolkit",
+            cwd=cwd,
             env=env,
             timeout=3600  # 1 hour timeout
         )
