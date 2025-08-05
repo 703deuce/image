@@ -31,6 +31,11 @@ ARG CACHEBUST=1
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Install ostris/ai-toolkit manually (not pip-installable)
+RUN git clone https://github.com/ostris/ai-toolkit.git /app/ai-toolkit && \
+    cd /app/ai-toolkit && \
+    pip install --no-cache-dir -r requirements.txt
+
 # Skip flash-attention - use standard attention for guaranteed compatibility
 # This ensures faster builds and no dependency issues
 
