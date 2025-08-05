@@ -317,18 +317,25 @@ meta:
 def setup_ai_toolkit():
     """Ensure ai-toolkit is available in persistent volume"""
     import subprocess
+    import shutil
     
     if not os.path.exists("/runpod-volume/ai-toolkit"):
         logger.info("📦 Setting up ai-toolkit in persistent volume...")
         try:
-            # Run the setup script
-            result = subprocess.run(["/app/setup-ai-toolkit.sh"], 
-                                  capture_output=True, text=True, timeout=60)
-            if result.returncode == 0:
+            # Check if source exists
+            if not os.path.exists("/app/ai-toolkit"):
+                raise RuntimeError("ai-toolkit source not found at /app/ai-toolkit")
+            
+            # Copy directly using Python instead of shell script
+            logger.info("Copying ai-toolkit from /app to /runpod-volume...")
+            shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
+            
+            # Verify the copy worked
+            if os.path.exists("/runpod-volume/ai-toolkit/run.py"):
                 logger.info("✅ ai-toolkit setup complete")
             else:
-                logger.error(f"❌ ai-toolkit setup failed: {result.stderr}")
-                raise RuntimeError("ai-toolkit setup failed")
+                raise RuntimeError("ai-toolkit copy verification failed")
+                
         except Exception as e:
             logger.error(f"❌ Error setting up ai-toolkit: {e}")
             raise e
