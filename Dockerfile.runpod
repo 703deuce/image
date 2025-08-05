@@ -32,11 +32,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Install ostris/ai-toolkit manually with proper dependencies
-RUN git clone https://github.com/ostris/ai-toolkit.git /app/ai-toolkit && \
+# Force rebuild - change timestamp to bust Docker cache
+ARG AI_TOOLKIT_REBUILD=2025-08-05-16-31
+RUN echo "AI-Toolkit rebuild trigger: $AI_TOOLKIT_REBUILD" && \
+    git clone https://github.com/ostris/ai-toolkit.git /app/ai-toolkit && \
     cd /app/ai-toolkit && \
     git submodule update --init --recursive && \
     pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    ls -la /app/ai-toolkit/ && \
+    echo "✅ ai-toolkit installation complete"
 
 # Skip flash-attention - use standard attention for guaranteed compatibility
 # This ensures faster builds and no dependency issues
