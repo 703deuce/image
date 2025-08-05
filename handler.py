@@ -315,34 +315,31 @@ meta:
     return config_path
 
 def setup_ai_toolkit():
-    """Ensure ai-toolkit is available - now installed via pip"""
+    """Ensure ai-toolkit is available - script-based installation only"""
     try:
-        # Test if ai-toolkit is available as installed package
-        import sys
-        import subprocess
+        logger.info("🔍 Checking for ai-toolkit installation...")
         
-        # Check if we can import the toolkit
-        result = subprocess.run([sys.executable, "-c", "import ai_toolkit; print('ai-toolkit available')"], 
-                              capture_output=True, text=True, timeout=10)
+        # ai-toolkit is NOT a pip package - it's a script collection
+        # Check for manual installation paths
         
-        if result.returncode == 0:
-            logger.info("✅ ai-toolkit is available as installed package")
-            return "package"
+        if os.path.exists("/runpod-volume/ai-toolkit/run.py"):
+            logger.info("✅ ai-toolkit found in persistent volume: /runpod-volume/ai-toolkit/run.py")
+            return "manual"
+        elif os.path.exists("/app/ai-toolkit/run.py"):
+            logger.info("✅ ai-toolkit found in app directory: /app/ai-toolkit/run.py")
+            logger.info("📦 Copying ai-toolkit from /app to /runpod-volume...")
+            import shutil
+            shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
+            logger.info("✅ ai-toolkit copied to persistent volume")
+            return "manual"
         else:
-            logger.info("ai-toolkit package not found, checking for manual installation...")
-            
-            # Fallback: check if manual installation exists
-            if os.path.exists("/runpod-volume/ai-toolkit/run.py"):
-                logger.info("✅ ai-toolkit available via manual installation")
-                return "manual"
-            elif os.path.exists("/app/ai-toolkit/run.py"):
-                logger.info("📦 Copying ai-toolkit from /app to /runpod-volume...")
-                import shutil
-                shutil.copytree("/app/ai-toolkit", "/runpod-volume/ai-toolkit")
-                logger.info("✅ ai-toolkit copied to persistent volume")
-                return "manual"
-            else:
-                raise RuntimeError("ai-toolkit not found via pip or manual installation")
+            # Debug: List directories to see what's available
+            logger.error("❌ ai-toolkit not found in expected locations")
+            if os.path.exists("/app"):
+                logger.info(f"📁 /app contents: {os.listdir('/app')}")
+            if os.path.exists("/runpod-volume"):
+                logger.info(f"📁 /runpod-volume contents: {os.listdir('/runpod-volume')}")
+            raise RuntimeError("ai-toolkit not found - /app/ai-toolkit/run.py missing")
                 
     except Exception as e:
         logger.error(f"❌ Error setting up ai-toolkit: {e}")
@@ -396,24 +393,16 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         env["HF_TOKEN"] = os.environ.get("HF_TOKEN")
         env["CUDA_VISIBLE_DEVICES"] = "0"
         
-        # Run training command based on installation type
+        # Run ai-toolkit as script (it's not a pip package)
         import subprocess
         import sys
         
-        if toolkit_type == "package":
-            # Use ai-toolkit as installed package
-            cmd = [
-                sys.executable, "-m", "ai_toolkit.run", 
-                config_path
-            ]
-            cwd = None
-        else:
-            # Use manual installation
-            cmd = [
-                sys.executable, "/runpod-volume/ai-toolkit/run.py", 
-                config_path
-            ]
-            cwd = "/runpod-volume/ai-toolkit"
+        # ai-toolkit is executed via its main run.py script (per official docs)
+        cmd = [
+            sys.executable, "run.py", 
+            config_path
+        ]
+        cwd = "/runpod-volume/ai-toolkit"
         
         logger.info(f"Running command: {' '.join(cmd)}")
         
