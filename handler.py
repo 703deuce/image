@@ -28,10 +28,29 @@ krea_loaded_lora_path = None
 
 def load_model():
     """Load the FLUX.1-dev model pipeline"""
-    global pipeline
+    global pipeline, krea_pipeline
     
     if pipeline is None:
         logger.info("Loading FLUX.1-dev model...")
+        
+        # Clear Krea model from memory if loaded
+        if krea_pipeline is not None:
+            logger.info("Clearing FLUX.1-Krea-dev model from GPU memory to make room for regular FLUX...")
+            try:
+                # Move to CPU and delete
+                krea_pipeline = krea_pipeline.to("cpu")
+                del krea_pipeline
+                krea_pipeline = None
+                
+                # Force garbage collection and clear CUDA cache
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                logger.info("✅ FLUX.1-Krea-dev model cleared from memory")
+            except Exception as clear_error:
+                logger.warning(f"Error clearing Krea model: {clear_error}")
         
         try:
             # Get HF token for gated model access
@@ -72,10 +91,29 @@ def load_model():
 
 def load_krea_model():
     """Load the FLUX.1-Krea-dev model pipeline with custom VAE"""
-    global krea_pipeline
+    global krea_pipeline, pipeline
     
     if krea_pipeline is None:
         logger.info("Loading FLUX.1-Krea-dev model...")
+        
+        # Clear regular FLUX model from memory if loaded
+        if pipeline is not None:
+            logger.info("Clearing FLUX.1-dev model from GPU memory to make room for Krea...")
+            try:
+                # Move to CPU and delete
+                pipeline = pipeline.to("cpu")
+                del pipeline
+                pipeline = None
+                
+                # Force garbage collection and clear CUDA cache
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                logger.info("✅ FLUX.1-dev model cleared from memory")
+            except Exception as clear_error:
+                logger.warning(f"Error clearing FLUX model: {clear_error}")
         
         try:
             # Get HF token for gated model access
