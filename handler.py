@@ -355,11 +355,34 @@ def setup_ai_toolkit():
         
         # Install ai-toolkit requirements to persistent volume (avoid disk space issues)
         logger.info("🔄 Installing ai-toolkit requirements to persistent volume...")
+        
+        # Force ALL packages to install to network storage
+        pip_env = os.environ.copy()
+        pip_env["PYTHONUSERBASE"] = "/runpod-volume/python-packages"
+        pip_env["PIP_TARGET"] = "/runpod-volume/python-packages"
+        
         result = subprocess.run([
-            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            sys.executable, "-m", "pip", "install", 
+            "--no-cache-dir",
             "--target", "/runpod-volume/python-packages",
+            "--no-deps",  # Install without dependencies first
             "-r", "/runpod-volume/ai-toolkit/requirements.txt"
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, env=pip_env)
+        
+        # Then install dependencies to same location
+        if result.returncode == 0:
+            logger.info("🔄 Installing dependencies to persistent volume...")
+            result2 = subprocess.run([
+                sys.executable, "-m", "pip", "install", 
+                "--no-cache-dir",
+                "--target", "/runpod-volume/python-packages",
+                "--upgrade",  # Allow upgrades of existing packages
+                "-r", "/runpod-volume/ai-toolkit/requirements.txt"
+            ], capture_output=True, text=True, env=pip_env)
+            
+            if result2.returncode != 0:
+                logger.error(f"❌ Failed to install dependencies: {result2.stderr}")
+                result = result2  # Use dependency install result for error handling
         
         if result.returncode != 0:
             logger.error(f"❌ Failed to install requirements: {result.stderr}")
@@ -502,116 +525,72 @@ def train_lora(training_dir: str, output_name: str, config: Dict[str, Any]) -> s
         logger.error(f"❌ Error during ai-toolkit LoRA training: {e}")
         raise e
 
-def load_lora_weights(pipeline, lora_path: str):
-    """Load LoRA weights into the pipeline using diffusers built-in support"""
-    global loaded_lora_path
+def load_multiple_lora_weights(pipeline, lora_configs: List[Dict[str, Any]]):
+    """Load multiple LoRA weights into the pipeline for stacking effects
+    
+    Args:
+        pipeline: The diffusion pipeline
+        lora_configs: List of LoRA configurations, each containing:
+            - path: str - Path to the LoRA file
+            - weight: float - Weight/strength of the LoRA (default 1.0)
+            - adapter_name: str - Unique name for the adapter (optional)
+    """
     
     try:
-        if loaded_lora_path == lora_path:
-            logger.info(f"LoRA {lora_path} already loaded")
-            return pipeline
+        logger.info(f"Loading {len(lora_configs)} LoRA models for stacking...")
         
-        logger.info(f"Loading LoRA weights from: {lora_path}")
-        
-        # Verify LoRA file exists
-        if not os.path.exists(lora_path):
-            raise FileNotFoundError(f"LoRA file not found: {lora_path}")
-        
-        # Unload previous LoRA if any
-        if loaded_lora_path is not None:
-            try:
-                pipeline.unload_lora_weights()
-                logger.info("Previous LoRA unloaded")
-            except Exception as e:
-                logger.warning(f"Could not unload previous LoRA: {e}")
-        
-        # Load LoRA weights using diffusers built-in method
-        logger.info(f"Loading LoRA file: {lora_path} ({os.path.getsize(lora_path)} bytes)")
-        
-        # Try to load LoRA weights with proper error handling
+        # Unload any existing LoRAs first
         try:
-            # Load LoRA weights with adapter name for newer diffusers
-            pipeline.load_lora_weights(lora_path, adapter_name="default")
-            logger.info("LoRA weights loaded into pipeline with adapter name 'default'")
-            
-            # DEBUG: Check available adapters after loading
-            available_adapters = []
-            try:
-                if hasattr(pipeline, 'adapters'):
-                    available_adapters = list(pipeline.adapters.keys())
-                    logger.info(f"Available adapters: {available_adapters}")
-                elif hasattr(pipeline.transformer, 'adapters'):
-                    available_adapters = list(pipeline.transformer.adapters.keys())
-                    logger.info(f"Available transformer adapters: {available_adapters}")
-                else:
-                    logger.info("No adapters attribute found")
-            except Exception as adapter_check_error:
-                logger.warning(f"Could not check adapters: {adapter_check_error}")
-            
-            # Try to set LoRA adapters with stronger weight
-            adapter_activated = False
-            
-            # Method 1: Try default adapter name
-            try:
-                pipeline.set_adapters(["default"], adapter_weights=[1.5])  # Higher weight for stronger effect
-                logger.info("✅ LoRA adapters activated with 'default' name and weight 1.5")
-                adapter_activated = True
-            except Exception as adapter_error:
-                logger.warning(f"Failed to set 'default' adapter: {adapter_error}")
-                
-                # Method 2: Try first available adapter
-                if available_adapters:
-                    try:
-                        first_adapter = available_adapters[0]
-                        pipeline.set_adapters([first_adapter], adapter_weights=[1.5])
-                        logger.info(f"✅ LoRA adapters activated with '{first_adapter}' and weight 1.5")
-                        adapter_activated = True
-                    except Exception as fallback_error:
-                        logger.error(f"Failed to set adapter '{first_adapter}': {fallback_error}")
-            
-            # Method 4: Try without explicit adapter names (auto-detection)
-            if not adapter_activated:
-                try:
-                    if hasattr(pipeline, 'fuse_lora'):
-                        pipeline.fuse_lora(lora_scale=1.5)
-                        logger.info("✅ LoRA fused directly with scale 1.5")
-                        adapter_activated = True
-                except Exception as fuse_error:
-                    logger.warning(f"Failed to fuse LoRA: {fuse_error}")
-            
-            if not adapter_activated:
-                logger.error("❌ Failed to activate LoRA adapters - continuing anyway")
-            
-        except Exception as lora_error:
-            # If there's a device error, try explicit device management
-            logger.warning(f"Standard LoRA loading failed: {lora_error}")
-            logger.info("Attempting LoRA loading with explicit device management...")
-            
-            # Get pipeline device
-            device = next(pipeline.transformer.parameters()).device
-            logger.info(f"Pipeline is on device: {device}")
-            
-            # Reload and move to device
-            pipeline.load_lora_weights(lora_path)
-            pipeline = pipeline.to(device)
-            
-            # Try to activate with stronger weight
-            try:
-                pipeline.set_adapters(["default"], adapter_weights=[1.5])
-                logger.info("✅ LoRA loaded with explicit device management and weight 1.5")
-            except:
-                logger.warning("⚠️ LoRA loaded but adapter activation uncertain")
+            pipeline.unload_lora_weights()
+            logger.info("Previous LoRAs unloaded")
+        except Exception as e:
+            logger.warning(f"Could not unload previous LoRAs: {e}")
         
-        loaded_lora_path = lora_path
-        logger.info("✅ LoRA weights loaded and applied successfully!")
+        adapter_names = []
+        adapter_weights = []
+        
+        for i, lora_config in enumerate(lora_configs):
+            lora_path = lora_config["path"]
+            weight = lora_config.get("weight", 1.0)
+            adapter_name = lora_config.get("adapter_name", f"lora_{i}")
+            
+            # Verify LoRA file exists
+            if not os.path.exists(lora_path):
+                logger.warning(f"LoRA file not found, skipping: {lora_path}")
+                continue
+                
+            logger.info(f"Loading LoRA {i+1}/{len(lora_configs)}: {os.path.basename(lora_path)} (weight={weight})")
+            
+            # Load LoRA weights with unique adapter name
+            pipeline.load_lora_weights(lora_path, adapter_name=adapter_name)
+            
+            adapter_names.append(adapter_name)
+            adapter_weights.append(weight)
+            
+            logger.info(f"✅ LoRA '{adapter_name}' loaded successfully")
+        
+        # Activate all adapters with their respective weights
+        if adapter_names:
+            pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
+            logger.info(f"✅ {len(adapter_names)} LoRA adapters activated with weights: {adapter_weights}")
+            
+            # Log the combination being used
+            for name, weight in zip(adapter_names, adapter_weights):
+                logger.info(f"  - {name}: weight {weight}")
+        else:
+            logger.warning("No LoRAs were successfully loaded")
         
         return pipeline
         
     except Exception as e:
-        logger.error(f"❌ Error loading LoRA weights: {e}")
-        # If LoRA loading fails, continue without LoRA
-        logger.warning("Continuing generation without LoRA")
+        logger.error(f"❌ Error loading multiple LoRA weights: {e}")
+        logger.warning("Continuing generation without LoRAs")
         return pipeline
+
+def load_lora_weights(pipeline, lora_path: str):
+    """Load single LoRA weights into the pipeline (backward compatibility)"""
+    lora_configs = [{"path": lora_path, "weight": 1.0, "adapter_name": "default"}]
+    return load_multiple_lora_weights(pipeline, lora_configs)
 
 def validate_parameters(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and set default parameters"""
@@ -811,11 +790,57 @@ def generate_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # Load model
         pipe = load_model()
         
-        # Load LoRA weights if specified
+        # Prepare LoRA configurations
+        lora_configs = []
+        
+        # Add skin enhancement LoRA automatically if enabled (default: True)
+        use_skin_enhancement = job_input.get("use_skin_enhancement", True)
+        skin_lora_path = "/runpod-volume/cache/lora/aidmaRealisticSkin-FLUX-v0.1.safetensors"
+        
+        if use_skin_enhancement and os.path.exists(skin_lora_path):
+            skin_weight = job_input.get("skin_lora_weight", 0.8)  # Moderate strength by default
+            lora_configs.append({
+                "path": skin_lora_path,
+                "weight": skin_weight,
+                "adapter_name": "realistic_skin"
+            })
+            logger.info(f"Adding realistic skin LoRA with weight {skin_weight}")
+        elif use_skin_enhancement:
+            logger.warning(f"Skin LoRA not found at {skin_lora_path}, continuing without it")
+        
+        # Add user-specified LoRA (e.g., subject LoRA)
         lora_path = job_input.get("lora_path")
         if lora_path:
-            pipe = load_lora_weights(pipe, lora_path)
-            logger.info(f"Using LoRA: {lora_path}")
+            lora_weight = job_input.get("lora_weight", 1.0)
+            lora_configs.append({
+                "path": lora_path,
+                "weight": lora_weight,
+                "adapter_name": "subject_lora"
+            })
+            logger.info(f"Adding subject LoRA: {lora_path} with weight {lora_weight}")
+        
+        # Add any additional LoRAs specified in lora_configs
+        additional_loras = job_input.get("lora_configs", [])
+        for i, additional_lora in enumerate(additional_loras):
+            lora_configs.append({
+                "path": additional_lora.get("path"),
+                "weight": additional_lora.get("weight", 1.0),
+                "adapter_name": additional_lora.get("adapter_name", f"additional_{i}")
+            })
+        
+        # Load all LoRAs if any are specified
+        if lora_configs:
+            pipe = load_multiple_lora_weights(pipe, lora_configs)
+            logger.info(f"Loaded {len(lora_configs)} LoRA models")
+            
+            # Add trigger words if using realistic skin LoRA
+            if use_skin_enhancement and os.path.exists(skin_lora_path):
+                # Add trigger word to prompt if not already present
+                prompt = job_input.get("prompt", "")
+                if "aidmarealisticskin" not in prompt.lower():
+                    # Insert trigger word naturally into the prompt
+                    job_input["prompt"] = f"{prompt}, aidmarealisticskin"
+                    logger.info("Added realistic skin trigger word to prompt")
         
         # Validate parameters
         params = validate_parameters(job_input)
@@ -884,11 +909,57 @@ def generate_krea_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # Load Krea model
         pipe = load_krea_model()
         
-        # Load LoRA weights if specified (same system as regular model)
+        # Prepare LoRA configurations (same as regular FLUX)
+        lora_configs = []
+        
+        # Add skin enhancement LoRA automatically if enabled (default: True)
+        use_skin_enhancement = job_input.get("use_skin_enhancement", True)
+        skin_lora_path = "/runpod-volume/cache/lora/aidmaRealisticSkin-FLUX-v0.1.safetensors"
+        
+        if use_skin_enhancement and os.path.exists(skin_lora_path):
+            skin_weight = job_input.get("skin_lora_weight", 0.8)  # Moderate strength by default
+            lora_configs.append({
+                "path": skin_lora_path,
+                "weight": skin_weight,
+                "adapter_name": "realistic_skin"
+            })
+            logger.info(f"Adding realistic skin LoRA to Krea with weight {skin_weight}")
+        elif use_skin_enhancement:
+            logger.warning(f"Skin LoRA not found at {skin_lora_path}, continuing without it")
+        
+        # Add user-specified LoRA (e.g., subject LoRA)
         lora_path = job_input.get("lora_path")
         if lora_path:
-            pipe = load_lora_weights_krea(pipe, lora_path)
-            logger.info(f"Using LoRA with Krea model: {lora_path}")
+            lora_weight = job_input.get("lora_weight", 1.0)
+            lora_configs.append({
+                "path": lora_path,
+                "weight": lora_weight,
+                "adapter_name": "subject_lora"
+            })
+            logger.info(f"Adding subject LoRA to Krea: {lora_path} with weight {lora_weight}")
+        
+        # Add any additional LoRAs specified in lora_configs
+        additional_loras = job_input.get("lora_configs", [])
+        for i, additional_lora in enumerate(additional_loras):
+            lora_configs.append({
+                "path": additional_lora.get("path"),
+                "weight": additional_lora.get("weight", 1.0),
+                "adapter_name": additional_lora.get("adapter_name", f"additional_{i}")
+            })
+        
+        # Load all LoRAs if any are specified
+        if lora_configs:
+            pipe = load_multiple_lora_weights_krea(pipe, lora_configs)
+            logger.info(f"Loaded {len(lora_configs)} LoRA models for Krea")
+            
+            # Add trigger words if using realistic skin LoRA
+            if use_skin_enhancement and os.path.exists(skin_lora_path):
+                # Add trigger word to prompt if not already present
+                prompt = job_input.get("prompt", "")
+                if "aidmarealisticskin" not in prompt.lower():
+                    # Insert trigger word naturally into the prompt
+                    job_input["prompt"] = f"{prompt}, aidmarealisticskin"
+                    logger.info("Added realistic skin trigger word to Krea prompt")
         
         # Validate parameters (same validation as regular model)
         params = validate_parameters(job_input)
@@ -951,71 +1022,64 @@ def generate_krea_image(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "error": str(e)
         }
 
-def load_lora_weights_krea(pipeline, lora_path: str):
-    """Load LoRA weights into the Krea pipeline using diffusers built-in support"""
-    global krea_loaded_lora_path
+def load_multiple_lora_weights_krea(pipeline, lora_configs: List[Dict[str, Any]]):
+    """Load multiple LoRA weights into the Krea pipeline for stacking effects"""
     
     try:
-        if krea_loaded_lora_path == lora_path:
-            logger.info(f"LoRA {lora_path} already loaded on Krea model")
-            return pipeline
+        logger.info(f"Loading {len(lora_configs)} LoRA models for Krea stacking...")
         
-        logger.info(f"Loading LoRA weights into Krea model from: {lora_path}")
-        
-        # Verify LoRA file exists
-        if not os.path.exists(lora_path):
-            raise FileNotFoundError(f"LoRA file not found: {lora_path}")
-        
-        # Unload previous LoRA if any
-        if krea_loaded_lora_path is not None:
-            try:
-                pipeline.unload_lora_weights()
-                logger.info("Previous LoRA unloaded from Krea model")
-            except Exception as e:
-                logger.warning(f"Could not unload previous LoRA from Krea: {e}")
-        
-        # Load LoRA weights using diffusers built-in method
-        logger.info(f"Loading LoRA file into Krea: {lora_path} ({os.path.getsize(lora_path)} bytes)")
-        
-        # Try to load LoRA weights with proper error handling
+        # Unload any existing LoRAs first
         try:
-            # Load LoRA weights with adapter name for newer diffusers
-            pipeline.load_lora_weights(lora_path, adapter_name="default")
-            logger.info("LoRA weights loaded into Krea pipeline with adapter name 'default'")
-            
-            # Try to set LoRA adapters with stronger weight
-            pipeline.set_adapters(["default"], adapter_weights=[1.5])
-            logger.info("✅ LoRA adapters activated on Krea with 'default' name and weight 1.5")
-            
-        except Exception as lora_error:
-            logger.warning(f"Standard LoRA loading failed on Krea: {lora_error}")
-            logger.info("Attempting LoRA loading with explicit device management...")
-            
-            # Get pipeline device
-            device = next(pipeline.transformer.parameters()).device
-            logger.info(f"Krea pipeline is on device: {device}")
-            
-            # Reload and move to device
-            pipeline.load_lora_weights(lora_path)
-            pipeline = pipeline.to(device)
-            
-            # Try to activate with stronger weight
-            try:
-                pipeline.set_adapters(["default"], adapter_weights=[1.5])
-                logger.info("✅ LoRA loaded on Krea with explicit device management and weight 1.5")
-            except:
-                logger.warning("⚠️ LoRA loaded on Krea but adapter activation uncertain")
+            pipeline.unload_lora_weights()
+            logger.info("Previous LoRAs unloaded from Krea")
+        except Exception as e:
+            logger.warning(f"Could not unload previous LoRAs from Krea: {e}")
         
-        krea_loaded_lora_path = lora_path
-        logger.info("✅ LoRA weights loaded and applied successfully to Krea!")
+        adapter_names = []
+        adapter_weights = []
+        
+        for i, lora_config in enumerate(lora_configs):
+            lora_path = lora_config["path"]
+            weight = lora_config.get("weight", 1.0)
+            adapter_name = lora_config.get("adapter_name", f"lora_{i}")
+            
+            # Verify LoRA file exists
+            if not os.path.exists(lora_path):
+                logger.warning(f"LoRA file not found, skipping: {lora_path}")
+                continue
+                
+            logger.info(f"Loading LoRA {i+1}/{len(lora_configs)} into Krea: {os.path.basename(lora_path)} (weight={weight})")
+            
+            # Load LoRA weights with unique adapter name
+            pipeline.load_lora_weights(lora_path, adapter_name=adapter_name)
+            
+            adapter_names.append(adapter_name)
+            adapter_weights.append(weight)
+            
+            logger.info(f"✅ LoRA '{adapter_name}' loaded into Krea successfully")
+        
+        # Activate all adapters with their respective weights
+        if adapter_names:
+            pipeline.set_adapters(adapter_names, adapter_weights=adapter_weights)
+            logger.info(f"✅ {len(adapter_names)} LoRA adapters activated on Krea with weights: {adapter_weights}")
+            
+            # Log the combination being used
+            for name, weight in zip(adapter_names, adapter_weights):
+                logger.info(f"  - Krea {name}: weight {weight}")
+        else:
+            logger.warning("No LoRAs were successfully loaded into Krea")
         
         return pipeline
         
     except Exception as e:
-        logger.error(f"❌ Error loading LoRA weights into Krea: {e}")
-        # If LoRA loading fails, continue without LoRA
-        logger.warning("Continuing Krea generation without LoRA")
+        logger.error(f"❌ Error loading multiple LoRA weights into Krea: {e}")
+        logger.warning("Continuing Krea generation without LoRAs")
         return pipeline
+
+def load_lora_weights_krea(pipeline, lora_path: str):
+    """Load single LoRA weights into the Krea pipeline (backward compatibility)"""
+    lora_configs = [{"path": lora_path, "weight": 1.0, "adapter_name": "default"}]
+    return load_multiple_lora_weights_krea(pipeline, lora_configs)
 
 def handler(job):
     """RunPod handler function"""
@@ -1085,19 +1149,31 @@ def handler(job):
                     "user_id": {"type": "string", "optional": True, "description": "User identifier for organizing training data"}
                 },
                 "generate_lora_parameters": {
-                    "lora_path": {"type": "string", "optional": True, "description": "Path to LoRA weights file to use for generation"}
+                    "lora_path": {"type": "string", "optional": True, "description": "Path to LoRA weights file to use for generation (subject/style LoRA)"},
+                    "lora_weight": {"type": "float", "default": 1.0, "description": "Weight/strength of the main LoRA (0.0 to 2.0)"},
+                    "use_skin_enhancement": {"type": "boolean", "default": True, "description": "Automatically apply realistic skin LoRA if available"},
+                    "skin_lora_weight": {"type": "float", "default": 0.8, "description": "Weight/strength of the skin enhancement LoRA (0.0 to 2.0)"},
+                    "lora_configs": {"type": "array", "optional": True, "description": "Advanced: Array of additional LoRA configurations with path, weight, and adapter_name"}
                 },
                 "download_lora_parameters": {
                     "lora_name": {"type": "string", "required": True, "description": "Name of the LoRA file to download (with or without .safetensors extension)"}
                 },
                 "endpoints": {
-                    "generate": "Generate image from text prompt using FLUX.1-dev (optionally with LoRA)",
-                    "generate_krea": "Generate image from text prompt using FLUX.1-Krea-dev with custom VAE (optionally with LoRA)",
+                    "generate": "Generate image from text prompt using FLUX.1-dev with automatic skin enhancement + optional subject LoRA stacking",
+                    "generate_krea": "Generate image from text prompt using FLUX.1-Krea-dev with custom VAE + automatic skin enhancement + optional subject LoRA stacking",
                     "train_lora": "Train a LoRA model on provided images",
                     "download_lora": "Download a trained LoRA model as base64",
                     "list_loras": "List all available LoRA models",
                     "health": "Check API health status",
                     "info": "Get model and API information"
+                },
+                "lora_stacking_info": {
+                    "description": "This API supports automatic LoRA stacking for enhanced realism",
+                    "automatic_skin_enhancement": "The realistic skin LoRA (aidmaRealisticSkin-FLUX-v0.1.safetensors) is automatically applied by default",
+                    "trigger_word": "The 'aidmarealisticskin' trigger word is automatically added to prompts when using skin enhancement",
+                    "subject_lora_support": "Your trained subject LoRAs work seamlessly with skin enhancement - specify via 'lora_path'",
+                    "advanced_stacking": "Use 'lora_configs' array for complex multi-LoRA combinations beyond skin + subject",
+                    "weight_control": "Fine-tune each LoRA's influence with individual weight parameters (0.0 to 2.0 range)"
                 }
             }
         
