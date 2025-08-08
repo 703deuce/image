@@ -79,8 +79,17 @@ def load_model():
             
             logger.info("Moving pipeline to CUDA...")
             pipeline = pipeline.to("cuda")
-            logger.info("Pipeline loaded successfully on GPU")
             
+            # Disable safety checker to save memory
+            pipeline.safety_checker = None
+            logger.info("✅ Safety checker disabled")
+            
+            # Disable feature extractor if not needed
+            if hasattr(pipeline, 'feature_extractor'):
+                pipeline.feature_extractor = None
+                logger.info("✅ Feature extractor disabled")
+            
+            logger.info("Pipeline loaded successfully on GPU")
             logger.info("Model loaded successfully!")
             
         except Exception as e:
@@ -187,6 +196,16 @@ def load_krea_model():
             # Move to GPU
             logger.info("Moving Krea pipeline to CUDA...")
             krea_pipeline = krea_pipeline.to("cuda")
+            
+            # Disable safety checker to save memory
+            krea_pipeline.safety_checker = None
+            logger.info("✅ Safety checker disabled for Krea")
+            
+            # Disable feature extractor if not needed
+            if hasattr(krea_pipeline, 'feature_extractor'):
+                krea_pipeline.feature_extractor = None
+                logger.info("✅ Feature extractor disabled for Krea")
+            
             logger.info("Krea pipeline loaded successfully on GPU")
             
             logger.info("✅ FLUX.1-Krea-dev model with custom VAE loaded successfully!")
